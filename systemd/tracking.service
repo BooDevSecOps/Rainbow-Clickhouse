@@ -1,0 +1,16 @@
+[Unit]
+Description=Go Tracking Service
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=/home/clickHouse-api/tracking-go
+ExecStart=/home/clickHouse-api/tracking-go/tracking
+Restart=always
+RestartSec=5
+Environment=GODEBUG=gctrace=1
+LimitNOFILE=2000000
+# tăng limit file descriptors nếu traffic lớn
+
+[Install]
+WantedBy=multi-user.target

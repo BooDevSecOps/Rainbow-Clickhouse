@@ -1,0 +1,35 @@
+[Unit]
+Description=FastAPI Application (High Throughput)
+After=network.target
+
+[Service]
+User=root
+Group=root
+WorkingDirectory=/home/clickHouse-api
+
+# TĂNG CƯỜNG HIỆU NĂNG:
+# 1. -w: Nếu server bạn có 8 cores, hãy để 17. Nếu 16 cores, hãy để 33.
+# 2. --worker-connections: Tăng số lượng kết nối đồng thời mỗi worker có thể giữ.
+# 3. --backlog: Tăng hàng đợi kết nối đang chờ xử lý lên mức tối đa của nhân Linux.
+ExecStart=/home/clickHouse-api/env/bin/python -m gunicorn \
+    -w 17 \
+    -k uvicorn.workers.UvicornWorker \
+    --worker-connections 20000 \
+    --backlog 20480 \
+    --bind 0.0.0.0:8000 \
+    --timeout 30 \
+    --keep-alive 5 \
+    app.main:app
+
+Restart=always
+RestartSec=1
+
+# GIỚI HẠN TÀI NGUYÊN (QUAN TRỌNG NHẤT):
+# Tăng số lượng file mở lên 1 triệu để tránh lỗi "Too many open files"
+LimitNOFILE=1000000
+LimitNPROC=infinity
+LimitCORE=infinity
+
+[Install]
+WantedBy=multi-user.target
+

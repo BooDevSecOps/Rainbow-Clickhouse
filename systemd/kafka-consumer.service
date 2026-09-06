@@ -1,0 +1,16 @@
+[Unit]
+Description=Kafka to ClickHouse Consumer
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=/home/clickHouse-api
+EnvironmentFile=/home/clickHouse-api/.env
+ExecStart=/home/clickHouse-api/env/bin/python3 /home/clickHouse-api/kafka_consumer.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
