@@ -4,3 +4,5 @@ certs/*.crt
 __pycache__/
 *.pyc
 .DS_Store
+tracking-go/tracking
+tracking-go/tracking_*
