@@ -7,6 +7,15 @@ Deploy automation for the analytics dashboard server (`dashboard.mbaku.org`).
 
 ---
 
+## Changelog
+
+| Version | Ngày | Thay đổi |
+|---------|------|----------|
+| **v2.0** | 2026-09-06 | Bỏ Kafka — tracking ghi thẳng vào ClickHouse (native port 9000) |
+| v1.0 | 2026-09-05 | Initial deploy: Go → Kafka → Python consumer → ClickHouse |
+
+---
+
 ## Quick Deploy
 
 ```bash
@@ -27,14 +36,130 @@ Script tự động: cài packages → tạo SSL cert → pull app → setup ven
 │   ├── dashboard.mbaku.org.conf   # Nginx vhost chính (port 80 + 443)
 │   └── dashboard.conf             # Nginx vhost cũ (ultraffic.info, lưu tham khảo)
 ├── scripts/
-│   ├── kafka_consumer.py          # Consumer Kafka → ClickHouse (chạy qua systemd)
+│   ├── kafka_consumer.py          # [v1.0] Python consumer: Kafka → ClickHouse
 │   ├── track.js                   # Tracking pixel JS (serve static)
 │   └── do_kafka_ca.crt            # CA cert cho DigitalOcean Managed Kafka (SSL)
+├── tracking-go/                   # [v2.0] Go tracking service (no Kafka)
+│   ├── main.go                    # Go Gin server, batch writer → ClickHouse native
+│   ├── go.mod
+│   └── go.sum
 └── systemd/
     ├── fastapi.service            # FastAPI dashboard (gunicorn + uvicorn, port 8000)
     ├── tracking.service           # Go Gin tracking API (port 8001)
-    └── kafka-consumer.service     # Python Kafka consumer (đọc từ Kafka → ghi ClickHouse)
+    └── kafka-consumer.service     # [v1.0] Python Kafka consumer (không dùng trong v2.0)
 ```
+
+---
+
+## v2.0 — Tracking trực tiếp vào ClickHouse (hiện tại)
+
+### Luồng dữ liệu
+
+```
+Browser (sites) → track.js → POST /track → Go Gin (8001)
+                                                  ↓
+                                     In-memory batch buffer
+                                     (flush mỗi 2s / 5000 events)
+                                                  ↓
+                                       ClickHouse DB :9000
+                                       analytics.user_activity
+                                                  ↓
+                                   FastAPI (8000) → Dashboard
+```
+
+### Services đang chạy
+
+| Service | Port | Mô tả |
+|---------|------|-------|
+| `fastapi.service` | 8000 | Dashboard FastAPI — 17 gunicorn workers |
+| `tracking.service` | 8001 | Go Gin — nhận POST /track, batch insert → ClickHouse |
+| `nginx` | 80, 443 | Reverse proxy, serve track.js static |
+
+> `kafka-consumer.service` đã tắt trong v2.0 — không cần nữa.
+
+```bash
+# Kiểm tra trạng thái
+systemctl status fastapi tracking nginx
+
+# Xem log tracking
+journalctl -fu tracking
+# Output mẫu:
+# ✅ ClickHouse connected: 167.172.71.234:9000 db=analytics
+# ✅ Inserted 143 events
+
+# Rollback về binary cũ nếu cần
+# cp /home/clickHouse-api/tracking-go/tracking_kafka_bak \
+#    /home/clickHouse-api/tracking-go/tracking
+# systemctl restart tracking
+```
+
+### Build từ source (deploy mới)
+
+```bash
+cd tracking-go
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o tracking .
+scp -i ~/.ssh/heimdall/id_ed25519 tracking root@94.237.64.237:/home/clickHouse-api/tracking-go/tracking
+ssh -i ~/.ssh/heimdall/id_ed25519 root@94.237.64.237 "systemctl restart tracking"
+```
+
+---
+
+## v1.0 — Kafka Pipeline (tham khảo / nâng cấp sau)
+
+Kiến trúc cũ dùng Kafka làm buffer trung gian. Hữu ích khi traffic quá lớn khiến ClickHouse không kịp nhận insert trực tiếp.
+
+### Luồng dữ liệu
+
+```
+Browser (sites) → track.js → POST /track → Go Gin (8001)
+                                                  ↓
+                                    Kafka topic: user-activity
+                                    (DigitalOcean Managed Kafka)
+                                    100 partitions / 3 brokers
+                                                  ↓
+                                       kafka_consumer.py
+                                       (group: user_activity_group_py)
+                                       batch 200 / flush mỗi 5s
+                                                  ↓
+                                       ClickHouse DB :9000
+                                       analytics.user_activity
+                                                  ↓
+                                   FastAPI (8000) → Dashboard
+```
+
+### Khi nào nên quay lại Kafka
+
+- Traffic vượt ~50k events/phút liên tục → ClickHouse insert lag
+- Cần replay data (Kafka lưu lịch sử có thể consume lại)
+- Nhiều consumer khác nhau cùng đọc 1 stream
+
+### Cách bật lại Kafka pipeline
+
+```bash
+# 1. Cài Kafka service
+scp -i ~/.ssh/heimdall/id_ed25519 systemd/kafka-consumer.service \
+    root@94.237.64.237:/etc/systemd/system/
+
+# 2. Swap tracking binary về phiên bản Kafka
+ssh -i ~/.ssh/heimdall/id_ed25519 root@94.237.64.237 "
+  cp /home/clickHouse-api/tracking-go/tracking_kafka_bak \
+     /home/clickHouse-api/tracking-go/tracking
+  systemctl daemon-reload
+  systemctl restart tracking
+  systemctl enable --now kafka-consumer
+"
+
+# 3. Điền Kafka credentials vào .env:
+# KAFKA_BROKER=db-kafka-ultraffic-...ondigitalocean.com:25073
+# KAFKA_USERNAME=doadmin
+# KAFKA_PASSWORD=<từ DO Console>
+```
+
+### Files liên quan (v1.0)
+
+- `scripts/kafka_consumer.py` — Python consumer, insert batch vào ClickHouse
+- `scripts/do_kafka_ca.crt` — CA cert cho DO Managed Kafka SSL
+- `systemd/kafka-consumer.service` — systemd unit
 
 ---
 
@@ -50,7 +175,17 @@ scp -i ~/.ssh/heimdall/id_ed25519 .env root@94.237.64.237:/home/clickHouse-api/.
 
 ### Giải thích từng biến
 
-#### Kafka (DigitalOcean Managed Kafka)
+#### ClickHouse (Database chính)
+
+| Biến | Mô tả | Ví dụ |
+|------|-------|-------|
+| `CLICKHOUSE_HOST` | IP hoặc hostname của ClickHouse server | `167.172.71.234` |
+| `CLICKHOUSE_PORT` | Port native protocol (mặc định 9000) | `9000` |
+| `CLICKHOUSE_USER` | User ClickHouse | `default` |
+| `CLICKHOUSE_PASSWORD` | **Secret** — password ClickHouse | _(không để trong repo)_ |
+| `CLICKHOUSE_DB` | Database name | `analytics` |
+
+#### Kafka (chỉ dùng trong v1.0)
 
 | Biến | Mô tả | Ví dụ |
 |------|-------|-------|
@@ -62,23 +197,13 @@ scp -i ~/.ssh/heimdall/id_ed25519 .env root@94.237.64.237:/home/clickHouse-api/.
 > `scripts/do_kafka_ca.crt` là CA certificate của DO Managed Kafka, cần thiết để verify SSL.  
 > Lấy cert mới: DO Console → Databases → Kafka → **Download CA certificate**.
 
-#### ClickHouse (Database chính)
-
-| Biến | Mô tả | Ví dụ |
-|------|-------|-------|
-| `CLICKHOUSE_HOST` | IP hoặc hostname của ClickHouse server | `167.172.71.234` |
-| `CLICKHOUSE_PORT` | Port native protocol (mặc định 9000) | `9000` |
-| `CLICKHOUSE_USER` | User ClickHouse | `default` |
-| `CLICKHOUSE_PASSWORD` | **Secret** — password ClickHouse | _(không để trong repo)_ |
-| `CLICKHOUSE_DB` | Database name | `analytics` |
-
 #### Redis
 
 | Biến | Mô tả | Giá trị mặc định |
 |------|-------|-----------------|
 | `REDIS_URI` | URI kết nối Redis local | `redis://localhost:6379` |
 
-#### Cloudflare (CF IP filtering, tùy chọn)
+#### Cloudflare (tùy chọn)
 
 | Biến | Mô tả |
 |------|-------|
@@ -97,43 +222,9 @@ scp -i ~/.ssh/heimdall/id_ed25519 .env root@94.237.64.237:/home/clickHouse-api/.
 
 ---
 
-## Services
-
-| Service | Port | Mô tả |
-|---------|------|-------|
-| `fastapi.service` | 8000 | Dashboard FastAPI — 17 gunicorn workers |
-| `tracking.service` | 8001 | Go Gin — nhận POST /track từ sites, đẩy vào Kafka |
-| `kafka-consumer.service` | — | Python consumer — đọc Kafka, INSERT vào ClickHouse |
-| `nginx` | 80, 443 | Reverse proxy, serve track.js static |
-
-```bash
-# Kiểm tra trạng thái
-systemctl status fastapi tracking kafka-consumer
-
-# Xem log realtime
-journalctl -fu kafka-consumer
-journalctl -fu fastapi
-```
-
----
-
-## Luồng dữ liệu
-
-```
-Browser (sites) → track.js → POST /track → Go Gin (8001) → Kafka
-                                                              ↓
-                                               kafka-consumer.py
-                                                              ↓
-                                                    ClickHouse DB
-                                                              ↓
-                                             FastAPI (8000) → Dashboard
-```
-
----
-
 ## Lưu ý bảo mật
 
 - **Không commit** file `.env` — đã có trong `.gitignore`
-- `KAFKA_PASSWORD` và `CLICKHOUSE_PASSWORD` chỉ lưu trên server tại `/home/clickHouse-api/.env`
-- `kafka-consumer.service` load credentials qua `EnvironmentFile=/home/clickHouse-api/.env`
+- `CLICKHOUSE_PASSWORD` và `KAFKA_PASSWORD` chỉ lưu trên server tại `/home/clickHouse-api/.env`
+- `tracking.service` và `kafka-consumer.service` load credentials qua `EnvironmentFile=/home/clickHouse-api/.env`
 - `do_kafka_ca.crt` là public CA certificate, an toàn để commit
