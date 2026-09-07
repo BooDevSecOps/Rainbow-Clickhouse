@@ -1,0 +1,75 @@
+# -------------------------------
+# Core FastAPI
+# -------------------------------
+fastapi
+uvicorn
+pydantic
+# orjson
+# ujson
+python-dotenv
+python-multipart
+# watchfiles
+# httptools
+# websockets
+# anyio
+
+# -------------------------------
+# Auth / Security
+# -------------------------------
+# bcrypt
+# passlib
+# PyJWT
+# cryptography
+email-validator>=2.0.0
+
+# -------------------------------
+# Kafka (RẤT QUAN TRỌNG)
+# -------------------------------
+# kafka-python==2.0.2
+# aiokafka==0.8.1
+
+# -------------------------------
+# ClickHouse
+# -------------------------------
+clickhouse-driver
+# clickhouse-connect==0.7.2
+
+# -------------------------------
+# Redis
+# -------------------------------
+redis
+# aioredis
+
+# -------------------------------
+# Database (nếu còn dùng Postgres)
+# -------------------------------
+# SQLAlchemy==1.4.45
+# alembic==1.9.0
+# psycopg2-binary==2.9.5
+
+# -------------------------------
+# HTTP / Utils
+# -------------------------------
+# httpx
+# certifi
+# dnspython
+# idna
+# rfc3986
+# six
+# colorama
+
+# -------------------------------
+# Email (nếu dùng)
+# -------------------------------
+# fastapi-mail==1.2.2
+# aiosmtplib
+
+# -------------------------------
+# Logging / Format
+# -------------------------------
+# python-json-logger
+user-agents
+confluent-kafka
+google-genai
+jinja2
+pytz

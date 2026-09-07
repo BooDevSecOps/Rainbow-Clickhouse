@@ -145,11 +145,45 @@ Verify: test POST `/track` qua cả `localhost:8001` và `https://dashboard.mbak
 
 > Lưu ý: dữ liệu "hôm nay" hiển thị ở `/summary` trước khi fix (34 hostname, ~40k users) là **số liệu tồn cũ** trong bảng aggregate `daily_hostname_summary`, không phải data live — cẩn thận khi verify dashboard chỉ bằng mắt, cần check `journalctl -u tracking` / nginx access log để chắc chắn có traffic thật.
 
+## v2.2 — Sự cố mất data 19h + migrate Kafka DO → Redpanda tự host (2026-09-07)
+
+**Sự cố:** `kafka-consumer.service` (Python, consume topic `user-activity` từ DO
+Kafka, insert vào ClickHouse) là consumer DUY NHẤT phục vụ chung cho cả
+dashboard (v1.0) và BE (`Rainbow-Clickhouse-BE`, vẫn dùng Kafka). Khi migrate
+dashboard sang v2.0 (bỏ Kafka cho traffic riêng), service này bị tắt luôn lúc
+06/09 16:26 UTC — vô tình cắt đứt pipeline của BE. BE vẫn produce bình thường
+(Kafka Engine native trong ClickHouse không dùng được do SSL cert broken 28
+ngày qua), nên toàn bộ traffic BE (hàng triệu event/giờ) bị kẹt trong Kafka
+không ai tiêu thụ suốt ~19 tiếng, tới khi phát hiện lúc 07/09 ~11:00 UTC.
+
+**Khôi phục:** bật lại `kafka-consumer.service` — Kafka còn giữ backlog nên
+consumer catch-up lại được **toàn bộ ~19h dữ liệu**, không mất dòng nào.
+
+**Migrate khỏi DO Kafka:** UpCloud không có Managed Kafka, nên tự host
+[Redpanda](https://github.com/BooDevSecOps/Rainbow-Redpanda) (tương thích
+Kafka wire protocol) trên VM UpCloud riêng (`95.111.195.188`). Đổi:
+- `scripts/kafka_consumer.py`: bỏ SASL_SSL, `auto.offset.reset` → `earliest`
+  (đề phòng broker mới rỗng offset).
+- `.env`: `KAFKA_BROKER=95.111.195.188:9092` (không cần USERNAME/PASSWORD nữa).
+- BE (`Rainbow-Clickhouse-BE/tracking-go`) đổi từ `confluent-kafka-go`
+  (CGO+librdkafka) sang `segmentio/kafka-go` (thuần Go) để tránh phải cài
+  librdkafka-dev/Go toolchain trên production server — build cross-compile
+  từ Mac như dashboard.
+
+**LƯU Ý bảo mật Redpanda:** `ufw` trên server Redpanda **không lọc được**
+traffic theo IP một cách tin cậy (đã test bằng deny rule tường minh, vẫn lọt
+qua) — bảo mật thật sự phải cấu hình qua **UpCloud Console → Firewall** của
+server đó, không chỉ dựa vào ufw. Xem chi tiết trong repo `Rainbow-Redpanda`.
+
+DO Kafka cluster (`db-kafka-ultraffic-do-user-13356586-0...`) giờ không còn
+dùng nữa, có thể xoá để tiết kiệm chi phí — đây là mảnh hạ tầng cuối cùng
+migrate khỏi DigitalOcean.
+
 ## Pending tasks
 
-- [ ] Theo dõi traffic thật quay lại sau khi các site pickup track.js bản mới (cache-control max-age=1800 → tối đa 30 phút để site cũ hết cache)
-- [ ] Cân nhắc xoá 2 dòng test (`hostname = 'selftest.local'` / `'selftest2.local'`) khỏi `user_activity` nếu muốn số liệu sạch tuyệt đối
-- [ ] Xóa DO Kafka cluster sau khi v2.0 ổn định ≥ 1 tuần
+- [ ] **Cấu hình UpCloud Console Firewall cho server Redpanda (95.111.195.188)** — ufw không đủ tin cậy, xem mục v2.2 ở trên
+- [ ] Xoá DO Kafka cluster (`db-kafka-ultraffic-do-user-13356586-0...`) — không còn dùng nữa
+- [ ] Cân nhắc xoá vài dòng test (`hostname` chứa `test.local`) khỏi `user_activity` nếu muốn số liệu sạch tuyệt đối
 - [ ] Verify S3 migration hoàn tất, cập nhật Django config
-- [ ] Xóa DO node 1 (152.42.197.181) qua DO panel (SSH bị block)
+- [ ] Xóa DO node 1 (152.42.197.181) qua DO panel (SSH bị block) — không bật lại được, xác nhận không phải nguồn data
 - [ ] Xóa DO Load Balancer 129.212.216.232 qua DO panel

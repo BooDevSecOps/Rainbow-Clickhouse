@@ -1,0 +1,14 @@
+[Unit]
+Description=Behavior Monitor (User Journey Check)
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=/home/clickHouse-api
+ExecStart=/home/clickHouse-api/env/bin/python /home/clickHouse-api/run_behavior_check.py
+Restart=always
+RestartSec=10
+EnvironmentFile=/home/clickHouse-api/.env
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+
+{% block title %}Analytics | Overview{% endblock %}
+
+{% block content %}
+        <div class="flex flex-col md:flex-row justify-between items-end mb-10 gap-4">
+            <div>
+                <h1 class="text-3xl font-extrabold tracking-tight text-slate-900">Performance Summary</h1>
+                <p class="text-slate-500 mt-1">Aggregated real-time metrics by hostname.</p>
+            </div>
+            <div class="flex items-center gap-3">
+
+            <input type="date" id="target-date" onchange="resetAndLoad()" 
+            class="bg-white border border-slate-200 text-sm font-bold rounded-lg px-3 py-2 outline-none shadow-sm focus:ring-2 focus:ring-indigo-500">
+
+                <select id="limit" onchange="resetAndLoad()" class="bg-white border border-slate-200 text-sm font-bold rounded-lg px-3 py-2 outline-none shadow-sm focus:ring-2 focus:ring-indigo-500">
+                    <option value="12">12 per page</option>
+                    <option value="24" selected>24 per page</option>
+                    <option value="48">48 per page</option>
+                </select>
+            </div>
+        </div>
+        <div id="stats-banner" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <!-- Stats sẽ được inject ở đây -->
+        </div>
+        <div id="cards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 min-h-[400px]">
+            <!-- Cards injected here -->
+        </div>
+
+        <!-- Pagination Controls -->
+        <div class="mt-12 flex justify-center items-center gap-6 border-t border-slate-200 pt-8">
+            <button id="prev-btn" onclick="changePage(-1)" class="group flex items-center gap-2 text-sm font-bold text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed">
+                <svg class="w-5 h-5 group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                Previous
+            </button>
+            <span class="text-sm font-bold bg-indigo-50 text-indigo-700 px-4 py-2 rounded-full">Page <span id="current-page-display">1</span></span>
+            <button id="next-btn" onclick="changePage(1)" class="group flex items-center gap-2 text-sm font-bold text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed">
+                Next
+                <svg class="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+            </button>
+        </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+debugger;
+const manilaDate = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+}).format(new Date());
+
+document.getElementById('target-date').value = manilaDate;
+
+let currentPage = 1;
+
+function resetAndLoad() {
+    currentPage = 1;
+    loadSummary();
+}
+
+function changePage(step) {
+    currentPage += step;
+    loadSummary();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+async function loadSummary(){
+    const limit = document.getElementById('limit').value;
+    const targetDate = document.getElementById('target-date').value; 
+    const container = document.getElementById('cards');
+    const nextBtn = document.getElementById('next-btn');
+    const prevBtn = document.getElementById('prev-btn');
+    
+    container.innerHTML = '<div class="col-span-full text-center py-20 text-slate-400 animate-pulse font-medium">Fetching summary data...</div>';
+    
+    try {
+        const res = await fetch(`/summary?page=${currentPage}&limit=${limit}&date=${targetDate}`);
+        const data = await res.json();
+
+        const g = data.grand_total;
+        document.getElementById('stats-banner').innerHTML = `
+            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                <p class="text-slate-500 text-xs font-bold uppercase tracking-wider">Total Active Users</p>
+                <p class="text-2xl font-black text-indigo-600">${g.total_users.toLocaleString()}</p>
+            </div>
+            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                <p class="text-slate-500 text-xs font-bold uppercase tracking-wider">Total New Users</p>
+                <p class="text-2xl font-black text-emerald-600">${g.total_new_users.toLocaleString()}</p>
+            </div>
+            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                <p class="text-slate-500 text-xs font-bold uppercase tracking-wider">Total Page Views</p>
+                <p class="text-2xl font-black text-slate-800">${g.total_views.toLocaleString()}</p>
+            </div>
+            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                <p class="text-slate-500 text-xs font-bold uppercase tracking-wider">Total Bots</p>
+                <p class="text-2xl font-black text-rose-500">${g.total_bots.toLocaleString()}</p>
+            </div>
+        `;
+        
+        document.getElementById('current-page-display').innerText = currentPage;
+        prevBtn.disabled = (currentPage === 1);
+        
+        if(!data.data || data.data.length === 0) {
+            container.innerHTML = `
+                <div class="col-span-full text-center py-20 bg-white rounded-2xl border-2 border-dashed border-slate-200">
+                    <p class="text-slate-500 font-bold text-lg">No data found for ${targetDate}</p>
+                    <p class="text-slate-400 text-sm">Please select a different date from the picker above.</p>
+                </div>`;
+            nextBtn.disabled = true;
+            return;
+        }
+
+        nextBtn.disabled = data.data.length < limit;
+        container.innerHTML = '';
+        
+                data.data.forEach((r, index) => {
+            const isTop1 = (currentPage === 1 && index === 0);
+            const isTop2 = (currentPage === 1 && index === 1);
+            const isTop3 = (currentPage === 1 && index === 2);
+
+            // Xác định màu sắc và icon cho Top
+            let topBadge = '';
+            let cardStyle = "bg-white border-slate-200 shadow-sm hover:shadow-xl";
+            let iconBg = "bg-slate-50 text-slate-400";
+
+            if (isTop1) {
+                topBadge = '<span class="text-[10px] font-black text-amber-600 bg-amber-100 px-2 py-1 rounded-md tracking-widest uppercase flex items-center gap-1">👑 Rank 1</span>';
+                cardStyle = "bg-gradient-to-br from-white to-amber-50 border-amber-200 shadow-md ring-2 ring-amber-400/20 scale-[1.02]";
+                iconBg = "bg-amber-500 text-white shadow-inner";
+            } else if (isTop2) {
+                topBadge = '<span class="text-[10px] font-black text-slate-500 bg-slate-200 px-2 py-1 rounded-md tracking-widest uppercase">🥈 Rank 2</span>';
+                cardStyle = "bg-gradient-to-br from-white to-slate-50 border-slate-300 shadow-md";
+                iconBg = "bg-slate-400 text-white";
+            } else if (isTop3) {
+                topBadge = '<span class="text-[10px] font-black text-orange-600 bg-orange-100 px-2 py-1 rounded-md tracking-widest uppercase">🥉 Rank 3</span>';
+                cardStyle = "bg-gradient-to-br from-white to-orange-50 border-orange-200 shadow-md";
+                iconBg = "bg-orange-400 text-white";
+            } else {
+                topBadge = '<span class="text-[10px] font-black text-emerald-500 bg-emerald-50 px-2 py-1 rounded-md tracking-widest uppercase">Active</span>';
+            }
+
+            const card = document.createElement('div');
+            card.className = `${cardStyle} p-6 rounded-2xl border transition-all duration-300 relative overflow-hidden`;
+            
+            card.innerHTML = `
+                <div class="flex justify-between items-start mb-6">
+                    <div class="${iconBg} p-2 rounded-lg transition-colors">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
+                    </div>
+                    ${topBadge}
+                </div>
+                <h2 class="text-lg font-bold text-slate-800 truncate mb-5" title="${r.hostname}">${r.hostname}</h2>
+                <div class="space-y-4">
+                    <div class="flex justify-between items-center">
+                        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Users</span>
+                        <span class="text-sm font-bold ${isTop1 ? 'text-amber-700 text-lg' : 'text-slate-900'}">${r.total_user_activate.toLocaleString()}</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">New Comers</span>
+                        <span class="text-sm font-bold text-emerald-600">+${r.new_user}</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Bot Traffic</span>
+                        <span class="text-sm font-bold text-red-400">${r.total_bots.toLocaleString()}</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Avg Stay</span>
+                        <span class="text-sm font-bold text-slate-900">${r.avg_stay_duration}s</span>
+                    </div>
+                    <div class="pt-4 border-t border-slate-100 flex items-center justify-between">
+                         <span class="text-[10px] font-bold text-slate-400 uppercase">Page Views</span>
+                         <span class="text-xs font-black text-indigo-600">${r.total_view_page.toLocaleString()}</span>
+                    </div>
+                </div>
+                ${isTop1 ? '<div class="absolute -right-4 -bottom-4 opacity-5"><svg class="w-24 h-24 text-amber-600" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg></div>' : ''}
+            `;
+            container.appendChild(card);
+        });
+
+    } catch (e) {
+        container.innerHTML = '<div class="col-span-full text-center py-20 text-red-500 font-bold">Failed to load data. Please check connection.</div>';
+    }
+}
+loadSummary();
+</script>
+{% endblock %}

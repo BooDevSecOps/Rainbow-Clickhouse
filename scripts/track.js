@@ -42,7 +42,7 @@
             is_bot: isBot
         };
 
-        fetch("https://dashboard.mbaku.org/track", {
+        fetch("https://api.rainbowbridge.fit/track", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),

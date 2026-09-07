@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+
+{% block title %}Analytics | Detailed Logs{% endblock %}
+
+{% block head %}
+    <style>
+        .table-container { height: calc(100vh - 280px); }
+    </style>
+{% endblock %}
+
+{% block container_class %}max-w-[1600px] mx-auto p-8{% endblock %}
+
+{% block content %}
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-2xl font-bold">Activity Logs Today</h1>
+            <div class="flex gap-4">
+
+                <div class="relative">
+                    <input type="text" id="search-ip" placeholder="Search IP..." 
+                        class="bg-white border border-slate-200 rounded-lg px-4 py-2 text-sm outline-none focus:border-indigo-500 w-48 transition-all shadow-sm"
+                        onkeyup="if(event.key === 'Enter') resetAndLoad()">
+                    <svg class="w-4 h-4 text-slate-400 absolute right-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                </div>
+
+                <select id="limit" onchange="resetAndLoad()" class="bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold shadow-sm">
+                    <option value="20">20 rows</option>
+                    <option value="50" selected>50 rows</option>
+                    <option value="100">100 rows</option>
+                </select>
+                <button onclick="loadDetail()" class="bg-indigo-600 text-white px-5 py-2 rounded-lg text-sm font-bold shadow-lg shadow-indigo-100">Refresh</button>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <div class="table-container overflow-auto">
+                <table class="min-w-full divide-y divide-slate-200 text-sm">
+                    <thead class="bg-slate-50 sticky top-0 font-bold text-slate-600 text-[11px] uppercase tracking-wider">
+                        <tr>
+                            <th class="px-6 py-4 text-left">Session</th>
+                            <th class="px-6 py-4 text-left">Host</th>
+                            <th class="px-6 py-4 text-left">Current URL</th>
+                            <th class="px-6 py-4 text-center">Type</th>
+                            <th class="px-6 py-4 text-left">IP Address</th>
+                            <th class="px-6 py-4 text-left">Time (PHT)</th>
+                            <th class="px-6 py-4 text-center">Stay</th>
+                        </tr>
+                    </thead>
+                    <tbody id="detail-body" class="divide-y divide-slate-100"></tbody>
+                </table>
+            </div>
+            
+            <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-between items-center">
+                <button id="prev-btn" onclick="changePage(-1)" class="px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-bold disabled:opacity-50">Previous</button>
+                <span class="text-sm font-bold text-slate-500 italic">Page <span id="current-page-display" class="text-indigo-600">1</span> / <span id="total-pages-display">1</span></span>
+                <button id="next-btn" onclick="changePage(1)" class="px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-bold disabled:opacity-50">Next</button>
+            </div>
+        </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentPage = 1;
+let totalPages = 1;
+
+function formatTimestamp(ts){
+    return new Date(ts * 1000).toLocaleString('en-GB', { timeZone: 'Asia/Manila', hour12: false });
+}
+
+function resetAndLoad() { currentPage = 1; loadDetail(); }
+
+function changePage(step) {
+    const newPage = currentPage + step;
+    if(newPage >= 1 && newPage <= totalPages) {
+        currentPage = newPage;
+        loadDetail();
+    }
+}
+
+async function loadDetail(){
+    const limit = document.getElementById('limit').value;
+    const ip = document.getElementById('search-ip').value;
+    const tbody = document.getElementById('detail-body');
+    const nextBtn = document.getElementById('next-btn');
+    const prevBtn = document.getElementById('prev-btn');
+    
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center py-20 text-slate-400 italic">Fetching...</td></tr>';
+
+    try {
+        const res = await fetch(`/detail?page=${currentPage}&limit=${limit}&ip=${encodeURIComponent(ip)}`);
+        const result = await res.json();
+        
+        const data = result.data;
+        totalPages = result.total_pages || 1;
+
+        document.getElementById('current-page-display').innerText = currentPage;
+        document.getElementById('total-pages-display').innerText = totalPages;
+        prevBtn.disabled = (currentPage === 1);
+        nextBtn.disabled = (currentPage >= totalPages);
+
+        if(!data || data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center py-20 text-slate-400">No logs found.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = '';
+        data.forEach(r => {
+            const tr = document.createElement('tr');
+            tr.className = "hover:bg-slate-50 transition-colors";
+            tr.innerHTML = `
+                <td class="px-6 py-4 font-mono text-[10px] text-slate-400">${r.session_id.substring(0,10)}...</td>
+                <td class="px-6 py-4 font-bold text-slate-800 text-xs">${r.hostname}</td>
+                <td class="px-6 py-4 max-w-xs truncate text-indigo-500 text-xs">${r.url}</td>
+                <td class="px-6 py-4 text-center">
+                    <span class="px-2 py-1 rounded text-[10px] font-black ${r.is_bot ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}">${r.is_bot ? 'BOT' : 'USER'}</span>
+                </td>
+                <td class="px-6 py-4 font-mono text-xs text-slate-500">${r.ip_user}</td>
+                <td class="px-6 py-4 text-[10px] leading-tight">
+                    <div class="text-slate-600 font-medium">Start: ${formatTimestamp(r.first_ts)}</div>
+                    <div class="text-slate-400">End: ${formatTimestamp(r.last_ts)}</div>
+                </td>
+                <td class="px-6 py-4 text-center font-bold text-slate-700 text-xs">${r.stay_duration}s</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center py-20 text-red-500">Error loading data.</td></tr>';
+    }
+}
+loadDetail();
+</script>
+{% endblock %}

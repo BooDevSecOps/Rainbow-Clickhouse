@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}DataPulse Analytics{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com" rel="stylesheet">
+    <style>body { font-family: 'Inter', sans-serif; letter-spacing: -0.01em; }</style>
+    {% block head %}{% endblock %}
+</head>
+<body class="bg-slate-50 min-h-screen text-slate-900">
+    <nav class="bg-white/80 backdrop-blur-md border-b border-slate-200 px-8 py-4 flex justify-between items-center sticky top-0 z-50">
+        <div class="flex items-center gap-3">
+            {% block logo %}
+            <div class="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-100">
+                <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+            </div>
+            <span class="text-xl font-bold tracking-tight text-slate-800">DataPulse <span class="text-indigo-600">Analytics</span></span>
+            {% endblock %}
+        </div>
+        <div class="flex bg-slate-100 p-1 rounded-lg">
+            <a href="/" class="px-4 py-2 rounded-md font-medium text-sm transition-all {% if active_page == 'online' %}bg-white text-emerald-600 shadow-sm{% else %}text-slate-500 hover:text-slate-800{% endif %}">Online Users</a>
+            <a href="/dashboard/summary" class="px-4 py-2 rounded-md font-medium text-sm transition-all {% if active_page == 'summary' %}bg-white text-indigo-600 shadow-sm{% else %}text-slate-500 hover:text-slate-800{% endif %}">Overview</a>
+            <a href="/dashboard/details" class="px-4 py-2 rounded-md font-medium text-sm transition-all {% if active_page == 'details' %}bg-white text-indigo-600 shadow-sm{% else %}text-slate-500 hover:text-slate-800{% endif %}">Detailed Logs</a>
+            <a href="/dashboard/report" class="px-4 py-2 rounded-md font-medium text-sm transition-all {% if active_page == 'report' %}bg-white text-purple-600 shadow-sm{% else %}text-slate-500 hover:text-slate-800{% endif %}">Daily Report</a>
+            <a href="/dashboard/security" class="px-4 py-2 rounded-md font-medium text-sm transition-all {% if active_page == 'security' %}bg-white text-red-600 shadow-sm{% else %}text-slate-500 hover:text-slate-800{% endif %}">Security Alerts</a>
+        </div>
+    </nav>
+
+    <main class="{% block container_class %}max-w-7xl mx-auto p-8{% endblock %}">
+        {% block content %}{% endblock %}
+    </main>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

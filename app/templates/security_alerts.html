@@ -1,0 +1,410 @@
+{% extends "base.html" %}
+
+{% block title %}Security Alerts | Ultraffic{% endblock %}
+
+{% block head %}
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/tippy.js@6/dist/tippy.css" />
+    <link rel="stylesheet" href="https://unpkg.com/tippy.js@6/animations/scale.css"/>
+{% endblock %}
+
+{% block container_class %}w-full px-8 py-8{% endblock %}
+
+{% block content %}
+        <div class="flex items-center justify-between mb-8">
+            <div class="flex items-center gap-4">
+                <div class="w-12 h-12 bg-gradient-to-br from-red-500 to-rose-600 rounded-2xl flex items-center justify-center shadow-lg shadow-red-200">
+                    <i class="fas fa-shield-alt text-white text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-2xl font-bold text-slate-800 tracking-tight">Security Alerts</h1>
+                    <p class="text-sm text-slate-500 font-medium">Real-time threat detection & response</p>
+                </div>
+            </div>
+            <div class="flex gap-3">
+                <form method="GET" action="/dashboard/security" class="flex items-center relative">
+                    <i class="fas fa-search absolute left-3 text-slate-400 z-10"></i>
+                    <input type="text" name="search" value="{{ search or '' }}" placeholder="Search IP, Country, ISP..." 
+                           class="pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm w-64 transition-all hover:border-indigo-300" id="search-input">
+                    {% if search %}
+                    <a href="/dashboard/security" class="absolute right-2 text-slate-400 hover:text-slate-600" title="Clear Search">
+                        <i class="fas fa-times-circle"></i>
+                    </a>
+                    {% endif %}
+                </form>
+                <button onclick="clearSelected()" id="btn-bulk-clear" class="hidden flex items-center gap-2 px-4 py-2.5 bg-slate-600 hover:bg-slate-700 text-white rounded-xl transition-all shadow-sm hover:shadow-md">
+                    <i class="fas fa-check"></i>
+                    <span class="font-medium text-sm">Clear Selected</span>
+                </button>
+                <button onclick="blockSelected()" id="btn-bulk-block" class="hidden flex items-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl transition-all shadow-sm hover:shadow-md">
+                    <i class="fas fa-ban"></i>
+                    <span class="font-medium text-sm">Block Selected</span>
+                </button>
+                <button onclick="window.location.reload()" class="group flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 hover:border-indigo-200 hover:bg-indigo-50 text-slate-600 hover:text-indigo-600 rounded-xl transition-all shadow-sm hover:shadow-md">
+                    <i class="fas fa-sync-alt group-hover:rotate-180 transition-transform duration-500"></i>
+                    <span class="font-medium text-sm">Refresh Data</span>
+                </button>
+            </div>
+        </div>
+        
+        {% if error %}
+        <div class="bg-red-50 border-l-4 border-red-500 p-4 mb-6">
+            <div class="flex">
+                <div class="flex-shrink-0">
+                    <i class="fas fa-exclamation-circle text-red-500"></i>
+                </div>
+                <div class="ml-3">
+                    <p class="text-sm text-red-700">{{ error }}</p>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="bg-white shadow-xl shadow-slate-200/40 rounded-2xl border border-slate-200/60 overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-slate-200">
+                    <thead class="bg-slate-50">
+                            <tr>
+                                <th scope="col" class="px-6 py-4 text-left">
+                                    <input type="checkbox" id="select-all" class="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer">
+                                </th>
+                                <th scope="col" class="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Time</th>
+                                <th scope="col" class="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Verdict</th>
+                                <th scope="col" class="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Score</th>
+                                <th scope="col" class="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">IP Address</th>
+                                <th scope="col" class="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Location</th>
+                                <th scope="col" class="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Threat Type</th>
+                                <th scope="col" class="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Reason</th>
+                                <th scope="col" class="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Solution</th>
+                                <th scope="col" class="px-6 py-4 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-slate-200">
+                            {% for alert in alerts %}
+                            <tr class="hover:bg-slate-50/80 transition-colors group">
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <input type="checkbox" class="ip-checkbox w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer" value="{{ alert.ip }}">
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-500">{{ alert.created_at }}</td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    {% if alert.verdict|lower == 'critical' %}
+                                        <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-red-50 text-red-600 border border-red-100 shadow-sm">CRITICAL</span>
+                                    {% else %}
+                                        <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-600 border border-amber-100 shadow-sm">SUSPICIOUS</span>
+                                    {% endif %}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    {% if alert.score and alert.score != 'N/A' %}
+                                        {% set score_val = alert.score|int %}
+                                        <div class="flex items-center gap-2">
+                                            <span class="text-sm font-bold {% if score_val >= 90 %}text-red-600{% elif score_val >= 70 %}text-orange-500{% else %}text-yellow-600{% endif %}">{{ alert.score }}</span>
+                                            <div class="w-12 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                                <div class="h-full {% if score_val >= 90 %}bg-red-500{% elif score_val >= 70 %}bg-orange-400{% else %}bg-yellow-400{% endif %}" style="width: {{ score_val }}%"></div>
+                                            </div>
+                                        </div>
+                                    {% else %}
+                                        <span class="text-xs text-slate-400 font-medium">-</span>
+                                    {% endif %}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-mono font-semibold text-slate-700 group-hover:text-indigo-600 transition-colors cursor-pointer" onclick="copyIP('{{ alert.ip }}')" title="Click to copy">
+                                    {{ alert.ip }} <i class="fas fa-copy ml-1 text-xs opacity-0 group-hover:opacity-100 transition-opacity"></i>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap md:whitespace-normal text-sm text-slate-600">
+                                    <div class="font-medium text-slate-800">{{ alert.country }}</div>
+                                    <div class="text-xs text-slate-400">{{ alert.isp }}</div>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap md:whitespace-normal text-sm font-medium text-slate-700">{{ alert.threat_type }}</td>
+                                <td class="px-6 py-4 whitespace-nowrap md:whitespace-normal text-sm text-slate-600">
+                                    <span data-tippy-content="{{ alert.reason_full }}" class="cursor-help border-b border-dotted border-slate-300">{{ alert.reason_display }}</span>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap md:whitespace-normal text-sm text-emerald-600 font-medium">{{ alert.solution }}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                    <button onclick="clearIP('{{ alert.ip }}')" class="inline-flex items-center gap-1.5 text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 hover:shadow-md px-3 py-1.5 rounded-lg transition-all text-xs font-semibold shadow-sm mr-2">
+                                        <i class="fas fa-check"></i> Clear
+                                    </button>
+                                    <button onclick="blockIP('{{ alert.ip }}', '{{ alert.reason|escape }}')" class="inline-flex items-center gap-1.5 text-white bg-red-600 hover:bg-red-700 border border-transparent hover:shadow-md px-3 py-1.5 rounded-lg transition-all text-xs font-semibold shadow-sm">
+                                        <i class="fas fa-ban"></i> Block
+                                    </button>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="9" class="px-6 py-12 text-center text-slate-500">
+                                    <div class="flex flex-col items-center justify-center">
+                                        <div class="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mb-3">
+                                            <i class="fas fa-check text-green-600 text-xl"></i>
+                                        </div>
+                                        <p class="text-lg font-medium text-slate-700">All Clear!</p>
+                                        <p class="text-sm text-slate-400">No active security threats found.</p>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+        </div>
+
+        <!-- Pagination Controls -->
+        <div class="flex items-center justify-between mt-6">
+            <div class="text-sm text-slate-500">
+                Showing page <span class="font-medium">{{ page }}</span> of <span class="font-medium">{{ total_pages }}</span>
+            </div>
+            <div class="flex gap-2">
+                {% if page > 1 %}
+                <a href="?page={{ page - 1 }}&limit={{ limit }}{% if search %}&search={{ search }}{% endif %}" class="px-4 py-2 bg-white border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 text-sm font-medium transition-colors shadow-sm">Previous</a>
+                {% else %}
+                <span class="px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-400 text-sm font-medium cursor-not-allowed">Previous</span>
+                {% endif %}
+
+                {% if page < total_pages %}
+                <a href="?page={{ page + 1 }}&limit={{ limit }}{% if search %}&search={{ search }}{% endif %}" class="px-4 py-2 bg-white border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 text-sm font-medium transition-colors shadow-sm">Next</a>
+                {% else %}
+                <span class="px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-400 text-sm font-medium cursor-not-allowed">Next</span>
+                {% endif %}
+            </div>
+        </div>
+{% endblock %}
+
+{% block scripts %}
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://unpkg.com/@popperjs/core@2"></script>
+    <script src="https://unpkg.com/tippy.js@6"></script>
+    <script>
+        tippy('[data-tippy-content]', {
+            animation: 'scale',
+            maxWidth: 400,
+            placement: 'top',
+        });
+    </script>
+    <script>
+        // Handle Select All
+        const selectAll = document.getElementById('select-all');
+        const checkboxes = document.querySelectorAll('.ip-checkbox');
+        const bulkBtn = document.getElementById('btn-bulk-block');
+        const bulkClearBtn = document.getElementById('btn-bulk-clear');
+
+        function updateBulkButton() {
+            const checkedCount = document.querySelectorAll('.ip-checkbox:checked').length;
+            if (checkedCount > 0) {
+                bulkBtn.classList.remove('hidden');
+                bulkBtn.querySelector('span').textContent = `Block (${checkedCount})`;
+                
+                bulkClearBtn.classList.remove('hidden');
+                bulkClearBtn.querySelector('span').textContent = `Clear (${checkedCount})`;
+            } else {
+                bulkBtn.classList.add('hidden');
+                bulkClearBtn.classList.add('hidden');
+            }
+        }
+
+        if (selectAll) {
+            selectAll.addEventListener('change', function() {
+                checkboxes.forEach(cb => {
+                    cb.checked = this.checked;
+                });
+                updateBulkButton();
+            });
+        }
+
+        checkboxes.forEach(cb => {
+            cb.addEventListener('change', updateBulkButton);
+        });
+
+        function copyIP(ip) {
+            navigator.clipboard.writeText(ip).then(() => {
+                const Toast = Swal.mixin({
+                    toast: true,
+                    position: 'top-end',
+                    showConfirmButton: false,
+                    timer: 2000,
+                    timerProgressBar: false,
+                    customClass: {
+                        popup: 'rounded-xl shadow-lg border border-slate-100'
+                    }
+                });
+
+                Toast.fire({
+                    icon: 'success',
+                    title: 'IP copied to clipboard'
+                });
+            });
+        }
+
+        async function blockIP(ip, reason) {
+            // Wrapper for single block to use the new list-based API
+            await executeBlock([ip], reason, `Are you sure you want to block <span class="font-mono font-bold text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded">${ip}</span>?`);
+        }
+
+        async function clearIP(ip) {
+            await executeClear([ip], `Are you sure you want to clear alert for <span class="font-mono font-bold text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded">${ip}</span>?`);
+        }
+
+        async function clearSelected() {
+            const selectedIPs = Array.from(document.querySelectorAll('.ip-checkbox:checked')).map(cb => cb.value);
+            if (selectedIPs.length === 0) return;
+            await executeClear(selectedIPs, `Are you sure you want to clear <span class="font-bold text-slate-800">${selectedIPs.length}</span> selected alerts?`);
+        }
+
+        async function blockSelected() {
+            const selectedIPs = Array.from(document.querySelectorAll('.ip-checkbox:checked')).map(cb => cb.value);
+            if (selectedIPs.length === 0) return;
+
+            await executeBlock(selectedIPs, "Bulk blocked via Security Dashboard", `Are you sure you want to block <span class="font-bold text-red-600">${selectedIPs.length}</span> selected addresses?`);
+        }
+
+        async function executeBlock(ips, reason, confirmHtml) {
+            const result = await Swal.fire({
+                title: ips.length > 1 ? 'Bulk Block IPs' : 'Block IP Address',
+                html: `
+                    <div class="text-left">
+                        <p class="text-slate-600 mb-3 text-base">${confirmHtml}</p>
+                        <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 text-sm text-slate-500">
+                            <span class="font-semibold text-slate-700 block mb-1">Reason:</span>
+                            ${reason}
+                        </div>
+                    </div>
+                `,
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: ips.length > 1 ? 'Yes, Block All' : 'Yes, Block IP',
+                cancelButtonText: 'Cancel',
+                customClass: {
+                    popup: 'rounded-2xl shadow-2xl border border-slate-100',
+                    confirmButton: 'bg-red-600 hover:bg-red-700 text-white font-semibold py-2.5 px-5 rounded-xl shadow-sm transition-all mx-2',
+                    cancelButton: 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-semibold py-2.5 px-5 rounded-xl shadow-sm transition-all mx-2',
+                    title: 'text-xl font-bold text-slate-800',
+                    htmlContainer: 'text-slate-600'
+                },
+                buttonsStyling: false,
+                reverseButtons: true
+            });
+
+            if (result.isConfirmed) {
+                try {
+                    const response = await fetch('/api/block-ip', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ips: ips, reason: reason })
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (response.ok) {
+                        Swal.fire({
+                            title: 'Blocked!',
+                            text: data.message,
+                            icon: 'success',
+                            customClass: {
+                                popup: 'rounded-2xl shadow-2xl',
+                                confirmButton: 'bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 px-5 rounded-xl'
+                            },
+                            buttonsStyling: false
+                        }).then(() => {
+                            window.location.reload();
+                        });
+                    } else {
+                        Swal.fire({
+                            title: 'Error!',
+                            text: data.message || 'Failed to block IP',
+                            icon: 'error',
+                            customClass: {
+                                popup: 'rounded-2xl shadow-2xl',
+                                confirmButton: 'bg-slate-800 hover:bg-slate-900 text-white font-semibold py-2.5 px-5 rounded-xl'
+                            },
+                            buttonsStyling: false
+                        });
+                    }
+                } catch (error) {
+                    Swal.fire({
+                        title: 'Error!',
+                        text: 'Network error occurred',
+                        icon: 'error',
+                        customClass: {
+                            popup: 'rounded-2xl shadow-2xl',
+                            confirmButton: 'bg-slate-800 hover:bg-slate-900 text-white font-semibold py-2.5 px-5 rounded-xl'
+                        },
+                        buttonsStyling: false
+                    });
+                }
+            }
+        }
+
+        async function executeClear(ips, confirmHtml) {
+            const result = await Swal.fire({
+                title: ips.length > 1 ? 'Bulk Clear Alerts' : 'Clear Alert',
+                html: `
+                    <div class="text-left">
+                        <p class="text-slate-600 mb-3 text-base">${confirmHtml}</p>
+                        <p class="text-sm text-slate-500">This will remove the IP from the alert list but will not block it.</p>
+                    </div>
+                `,
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonText: ips.length > 1 ? 'Yes, Clear All' : 'Yes, Clear',
+                cancelButtonText: 'Cancel',
+                customClass: {
+                    popup: 'rounded-2xl shadow-2xl border border-slate-100',
+                    confirmButton: 'bg-slate-600 hover:bg-slate-700 text-white font-semibold py-2.5 px-5 rounded-xl shadow-sm transition-all mx-2',
+                    cancelButton: 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-semibold py-2.5 px-5 rounded-xl shadow-sm transition-all mx-2',
+                    title: 'text-xl font-bold text-slate-800',
+                    htmlContainer: 'text-slate-600'
+                },
+                buttonsStyling: false,
+                reverseButtons: true
+            });
+
+            if (result.isConfirmed) {
+                try {
+                    const response = await fetch('/api/clear-ip', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ips: ips })
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (response.ok) {
+                        Swal.fire({
+                            title: 'Cleared!',
+                            text: data.message,
+                            icon: 'success',
+                            customClass: {
+                                popup: 'rounded-2xl shadow-2xl',
+                                confirmButton: 'bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 px-5 rounded-xl'
+                            },
+                            buttonsStyling: false
+                        }).then(() => {
+                            window.location.reload();
+                        });
+                    } else {
+                        Swal.fire('Error!', data.message || 'Failed to clear IP', 'error');
+                    }
+                } catch (error) {
+                    Swal.fire('Error!', 'Network error occurred', 'error');
+                }
+            }
+        }
+
+        // Debounce Search
+        const searchInput = document.getElementById('search-input');
+        let debounceTimer;
+
+        if (searchInput) {
+            // Focus input if search param exists (UX improvement)
+            if (searchInput.value.trim() !== '') {
+                searchInput.focus();
+                const val = searchInput.value;
+                searchInput.value = '';
+                searchInput.value = val;
+            }
+
+            searchInput.addEventListener('input', function() {
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    this.form.submit();
+                }, 600);
+            });
+        }
+    </script>
+{% endblock %}

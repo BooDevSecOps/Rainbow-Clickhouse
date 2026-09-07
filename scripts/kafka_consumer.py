@@ -8,13 +8,8 @@ log = logging.getLogger(__name__)
 
 KAFKA_CONF = {
     "bootstrap.servers": os.environ["KAFKA_BROKER"],
-    "security.protocol": "SASL_SSL",
-    "sasl.mechanism": "PLAIN",
-    "sasl.username": os.environ["KAFKA_USERNAME"],
-    "sasl.password": os.environ["KAFKA_PASSWORD"],
-    "ssl.ca.location": "/home/clickHouse-api/do_kafka_ca.crt",
     "group.id": "user_activity_group_py",
-    "auto.offset.reset": "latest",
+    "auto.offset.reset": "earliest",
     "enable.auto.commit": True,
     "session.timeout.ms": 30000,
 }

@@ -1,0 +1,400 @@
+{% extends "base.html" %}
+
+{% block title %}Analytics | Daily Report{% endblock %}
+
+{% block head %}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+{% endblock %}
+
+{% block logo %}
+    <span class="text-xl font-bold">DataPulse <span class="text-purple-600">Report</span></span>
+{% endblock %}
+
+{% block container_class %}max-w-7xl mx-auto p-8{% endblock %}
+
+{% block content %}
+        <div class="flex flex-col md:flex-row justify-between items-end mb-10 gap-4">
+            <div>
+                <h1 class="text-3xl font-extrabold tracking-tight text-slate-900">Daily Traffic Report</h1>
+                <p class="text-slate-500 mt-1">Automated Analysis powered by Python & ClickHouse</p>
+            </div>
+            <div class="flex items-center gap-3">
+                <input type="text" id="report-hostname" placeholder="Hostname (Optional)" class="bg-white border border-slate-200 text-sm font-bold rounded-lg px-3 py-2 outline-none shadow-sm focus:ring-2 focus:ring-purple-500 w-48 transition-all">
+                <input type="date" id="report-date" onchange="generateReport()" class="bg-white border border-slate-200 text-sm font-bold rounded-lg px-3 py-2 outline-none shadow-sm focus:ring-2 focus:ring-purple-500 transition-all">
+                <button onclick="generateReport()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-bold text-sm transition-all shadow-lg shadow-purple-100 flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+                    Generate Analysis
+                </button>
+            </div>
+        </div>
+
+        <!-- REPORT UI -->
+        <div id="tab-report" class="bg-white p-8 rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 min-h-[500px] relative">
+            
+            <!-- Loading Skeleton -->
+            <div id="loading-skeleton" class="hidden animate-pulse space-y-8">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="h-28 bg-slate-100 rounded-2xl"></div>
+                    <div class="h-28 bg-slate-100 rounded-2xl"></div>
+                    <div class="h-28 bg-slate-100 rounded-2xl"></div>
+                </div>
+                <div class="h-80 bg-slate-100 rounded-2xl"></div>
+                <div class="space-y-3">
+                    <div class="h-4 bg-slate-100 rounded w-3/4"></div>
+                    <div class="h-4 bg-slate-100 rounded w-1/2"></div>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div id="report-container" class="hidden opacity-0 transition-opacity duration-500">
+                <!-- 1. Key Metrics Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+                    <div class="bg-indigo-50/50 border border-indigo-100 p-6 rounded-2xl flex items-center gap-5 transition-transform hover:scale-[1.02]">
+                        <div class="w-14 h-14 rounded-xl bg-indigo-500 text-white flex items-center justify-center shadow-lg shadow-indigo-200">
+                            <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                        </div>
+                        <div>
+                            <p class="text-xs font-bold text-indigo-400 uppercase tracking-wider mb-1">Active Users</p>
+                            <p class="text-3xl font-black text-slate-800" id="metric-users">-</p>
+                        </div>
+                    </div>
+                    <div class="bg-emerald-50/50 border border-emerald-100 p-6 rounded-2xl flex items-center gap-5 transition-transform hover:scale-[1.02]">
+                        <div class="w-14 h-14 rounded-xl bg-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-200">
+                            <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                        </div>
+                        <div>
+                            <p class="text-xs font-bold text-emerald-500 uppercase tracking-wider mb-1">Page Views</p>
+                            <p class="text-3xl font-black text-slate-800" id="metric-views">-</p>
+                        </div>
+                    </div>
+                    <div class="bg-rose-50/50 border border-rose-100 p-6 rounded-2xl flex items-center gap-5 transition-transform hover:scale-[1.02]">
+                        <div class="w-14 h-14 rounded-xl bg-rose-500 text-white flex items-center justify-center shadow-lg shadow-rose-200">
+                            <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                        </div>
+                        <div>
+                            <p class="text-xs font-bold text-rose-400 uppercase tracking-wider mb-1">Bot Sessions</p>
+                            <p class="text-3xl font-black text-slate-800" id="metric-bots">-</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. Charts Section -->
+                <div id="charts-container" class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+                <div class="md:col-span-3 h-64 bg-slate-50 rounded-xl border border-slate-100 p-4 relative">
+                    <canvas id="dailyChart"></canvas>
+                </div>
+                <div class="h-64 bg-slate-50 rounded-xl border border-slate-100 p-4 relative">
+                    <canvas id="barChart"></canvas>
+                </div>
+                <div class="h-64 bg-slate-50 rounded-xl border border-slate-100 p-4 relative">
+                    <canvas id="pieChart"></canvas>
+                </div>
+                <div class="h-64 bg-slate-50 rounded-xl border border-slate-100 p-4 relative">
+                    <canvas id="deviceChart"></canvas>
+                </div>
+            </div>
+
+                <!-- 3. AI Analysis Text -->
+                <div class="bg-slate-50 rounded-3xl p-8 border border-slate-100 relative overflow-hidden">
+                    <div class="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-purple-500 to-indigo-500"></div>
+                    <div id="report-content" class="prose prose-slate max-w-none text-slate-600 leading-relaxed prose-headings:font-bold prose-h2:text-slate-800 prose-h2:text-2xl prose-h2:mb-6 prose-h3:text-indigo-600 prose-h3:text-lg prose-h3:mt-8 prose-strong:text-slate-900 prose-li:marker:text-indigo-400"></div>
+                </div>
+            </div>
+
+            <!-- Empty State -->
+            <div id="empty-state" class="text-center py-32">
+                <div class="inline-flex bg-slate-50 p-4 rounded-full mb-4">
+                    <svg class="w-10 h-10 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                </div>
+                <p class="text-slate-500 font-medium">Select a date to generate detailed analysis.</p>
+            </div>
+        </div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const today = new Intl.DateTimeFormat('en-CA', {timeZone: 'Asia/Manila'}).format(new Date());
+document.getElementById('report-date').value = today;
+let trafficChart = null;
+let pieChart = null;
+let barChart = null;
+let deviceChart = null;
+
+async function generateReport() {
+    const date = document.getElementById('report-date').value;
+    const hostname = document.getElementById('report-hostname').value;
+    
+    // UI State: Loading
+    document.getElementById('empty-state').classList.add('hidden');
+    document.getElementById('report-container').classList.add('hidden');
+    document.getElementById('report-container').classList.remove('opacity-100');
+    document.getElementById('loading-skeleton').classList.remove('hidden');
+    
+    try {
+        const res = await fetch('/ai/analyze', { 
+            method: 'POST', 
+            headers: {'Content-Type': 'application/json'}, 
+            body: JSON.stringify({ date: date, hostname: hostname }) 
+        });
+        const data = await res.json();
+        
+        document.getElementById('loading-skeleton').classList.add('hidden');
+        
+        if(data.error) {
+            alert(`Error: ${data.error}`);
+        } else {
+            // 1. Update Metrics
+            if (data.summary) {
+                document.getElementById('metric-users').innerText = data.summary.active_users.toLocaleString();
+                document.getElementById('metric-views').innerText = data.summary.page_views.toLocaleString();
+                document.getElementById('metric-bots').innerText = data.summary.bot_sessions.toLocaleString();
+            }
+
+            // 2. Render Charts
+            if (data.chart_data && data.chart_data.hourly) {
+                renderChart(data.chart_data.hourly);
+            }
+            if (data.chart_data && data.chart_data.distribution) {
+                renderPieChart(data.chart_data.distribution);
+            }
+            if (data.chart_data && data.chart_data.top_hosts) {
+                renderBarChart(data.chart_data.top_hosts);
+            }
+            if (data.chart_data && data.chart_data.devices) {
+                renderDeviceChart(data.chart_data.devices);
+            }
+
+            // 3. Render Text Report
+            document.getElementById('report-content').innerHTML = marked.parse(data.report);
+
+            // Show Container with Fade In
+            const container = document.getElementById('report-container');
+            container.classList.remove('hidden');
+            setTimeout(() => container.classList.add('opacity-100'), 50);
+        }
+    } catch(e) {
+        alert("Network Error");
+    }
+}
+
+function renderChart(hourlyData) {
+    const canvas = document.getElementById('dailyChart');
+    const ctx = canvas.getContext('2d');
+    document.getElementById('charts-container').classList.remove('hidden');
+    
+    const labels = Array.from({length: 24}, (_, i) => `${i}:00`);
+    const dataPoints = Array.from({length: 24}, (_, i) => hourlyData[i] || 0);
+
+    if (trafficChart) {
+        trafficChart.destroy();
+    }
+
+    // Tạo Gradient màu tím đẹp mắt
+    let gradient = ctx.createLinearGradient(0, 0, 0, 300);
+    gradient.addColorStop(0, 'rgba(124, 58, 237, 0.4)'); // Purple đậm ở trên
+    gradient.addColorStop(1, 'rgba(124, 58, 237, 0.0)'); // Trong suốt ở dưới
+
+    trafficChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Active Users',
+                data: dataPoints,
+                borderColor: '#7c3aed',
+                backgroundColor: gradient,
+                borderWidth: 3,
+                fill: true,
+                tension: 0.4, // Đường cong mềm mại
+                pointRadius: 0, // Ẩn điểm tròn mặc định
+                pointHoverRadius: 6, // Hiện khi hover
+                pointHitRadius: 10,
+                pointBackgroundColor: '#fff',
+                pointBorderColor: '#7c3aed',
+                pointBorderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: {
+                duration: 2000,
+                easing: 'easeOutQuart'
+            },
+            plugins: {
+                legend: {display: false},
+                tooltip: {
+                    mode: 'index', 
+                    intersect: false,
+                    backgroundColor: 'rgba(255, 255, 255, 0.95)', // Tooltip nền trắng
+                    titleColor: '#1e293b',
+                    bodyColor: '#475569',
+                    borderColor: '#e2e8f0',
+                    borderWidth: 1,
+                    padding: 10,
+                    displayColors: false
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true, 
+                    grid: {color: '#f1f5f9', borderDash: [5, 5]}, // Lưới nét đứt
+                    ticks: {color: '#94a3b8', font: {size: 11}}
+                },
+                x: {
+                    grid: {display: false},
+                    ticks: {color: '#94a3b8', font: {size: 11}, maxTicksLimit: 8}
+                }
+            },
+            interaction: {
+                mode: 'nearest',
+                axis: 'x',
+                intersect: false
+            }
+        }
+    });
+}
+
+function renderPieChart(distData) {
+    const ctx = document.getElementById('pieChart').getContext('2d');
+    
+    if (pieChart) {
+        pieChart.destroy();
+    }
+
+    pieChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Real Users', 'Bots'],
+            datasets: [{
+                data: [distData.users, distData.bots],
+                backgroundColor: ['#10b981', '#f43f5e'], // Emerald & Rose
+                hoverOffset: 4,
+                borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: {
+                animateScale: true,
+                animateRotate: true,
+                duration: 2000,
+                easing: 'easeOutBounce'
+            },
+            plugins: {
+                legend: {
+                    position: 'bottom', 
+                    labels: {usePointStyle: true, boxWidth: 8, font: {size: 11}, color: '#64748b'}
+                },
+                title: {
+                    display: true, 
+                    text: 'Traffic Distribution', 
+                    font: {size: 13, weight: '600'}, 
+                    color: '#334155',
+                    padding: {bottom: 10}
+                }
+            },
+            cutout: '75%' // Vòng tròn mỏng hơn
+        }
+    });
+}
+
+function renderBarChart(hostsData) {
+    const ctx = document.getElementById('barChart').getContext('2d');
+    
+    if (barChart) {
+        barChart.destroy();
+    }
+
+    const labels = hostsData.map(h => h.host);
+    const data = hostsData.map(h => h.users);
+
+    barChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Active Users',
+                data: data,
+                backgroundColor: '#6366f1',
+                borderRadius: 4, // Bo góc cột
+                barThickness: 16,
+                hoverBackgroundColor: '#4f46e5'
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: {
+                duration: 1500,
+                easing: 'easeOutQuart'
+            },
+            plugins: {
+                legend: {display: false},
+                title: {
+                    display: true, 
+                    text: 'Top Hostnames', 
+                    font: {size: 13, weight: '600'},
+                    color: '#334155',
+                    align: 'start',
+                    padding: {bottom: 10}
+                }
+            },
+            scales: {
+                x: {display: false}, // Ẩn trục X cho gọn
+                y: {grid: {display: false}, ticks: {font: {size: 11}, color: '#64748b'}}
+            }
+        }
+    });
+}
+
+function renderDeviceChart(deviceData) {
+    const ctx = document.getElementById('deviceChart').getContext('2d');
+    if (deviceChart) deviceChart.destroy();
+
+    deviceChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: Object.keys(deviceData),
+            datasets: [{
+                data: Object.values(deviceData),
+                backgroundColor: ['#3b82f6', '#8b5cf6', '#f59e0b'], // Blue, Purple, Amber
+                hoverOffset: 4,
+                borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: {
+                animateScale: true,
+                animateRotate: true,
+                duration: 2000,
+                easing: 'easeOutBounce'
+            },
+            plugins: {
+                legend: {
+                    position: 'bottom', 
+                    labels: {usePointStyle: true, boxWidth: 8, font: {size: 11}, color: '#64748b'}
+                },
+                title: {
+                    display: true, 
+                    text: 'Device Usage', 
+                    font: {size: 13, weight: '600'},
+                    color: '#334155',
+                    padding: {bottom: 10}
+                }
+            },
+            cutout: '75%'
+        }
+    });
+}
+
+// Auto generate on load
+generateReport();
+</script>
+{% endblock %}

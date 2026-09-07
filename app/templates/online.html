@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+
+{% block title %}Live Monitoring | Online Users{% endblock %}
+
+{% block head %}
+    <style>
+        .live-dot {
+            position: relative;
+            display: inline-flex;
+            border-radius: 50%;
+            height: 10px;
+            width: 10px;
+            background-color: #10b981;
+        }
+        .live-dot::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            background-color: #10b981;
+            animation: pulse 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+        }
+        @keyframes pulse {
+            75%, 100% { transform: scale(3); opacity: 0; }
+        }
+    </style>
+{% endblock %}
+
+{% block logo %}
+    <div class="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-100">
+        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+    </div>
+    <span class="text-xl font-bold tracking-tight text-slate-800">DataPulse <span class="text-emerald-600">Live</span></span>
+{% endblock %}
+
+{% block container_class %}max-w-6xl mx-auto p-8{% endblock %}
+
+{% block content %}
+        <header class="flex flex-col md:flex-row justify-between items-end mb-10 gap-4">
+            <div>
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="live-dot"></span>
+                    <span class="text-[11px] font-black text-emerald-600 uppercase tracking-[0.2em]">Live Tracking</span>
+                </div>
+                <h1 class="text-4xl font-extrabold tracking-tight text-slate-900">Real-time Activity</h1>
+                <p class="text-slate-500 mt-1 text-lg">Unique users active in the last 30 minutes across all hostnames.</p>
+            </div>
+            <div class="flex items-center gap-3">
+                <div class="bg-white border border-slate-200 rounded-xl px-4 py-2 shadow-sm flex items-center gap-3">
+                    <span class="text-xs font-bold text-slate-400 uppercase">Page Size</span>
+                    <select id="limit" onchange="resetAndLoad()" class="text-sm font-black outline-none bg-transparent">
+                        <option value="10">10</option>
+                        <option value="20" selected>20</option>
+                        <option value="50">50</option>
+                    </select>
+                </div>
+                <button onclick="loadOnline()" class="bg-slate-900 hover:bg-slate-800 text-white px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                    Sync Now
+                </button>
+            </div>
+        </header>
+
+        <!-- Dynamic Grid -->
+        <div id="online-container" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- Loading placeholder -->
+            <div class="col-span-full text-center py-20 text-slate-400 font-medium">Initializing live data...</div>
+        </div>
+
+        <!-- Pagination -->
+        <div class="mt-12 flex justify-between items-center bg-white border border-slate-200 p-4 rounded-2xl shadow-sm">
+            <button id="prev-btn" onclick="changePage(-1)" class="px-6 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-30 transition-all rounded-lg">← Previous</button>
+            <div class="flex items-center gap-2">
+                <span class="text-slate-400 text-sm font-medium">Page</span>
+                <span id="current-page-display" class="w-8 h-8 flex items-center justify-center bg-emerald-600 text-white rounded-lg font-bold text-sm shadow-emerald-100 shadow-lg">1</span>
+                <span id="total-pages-display" class="text-slate-400 text-sm font-medium">of ...</span>
+            </div>
+            <button id="next-btn" onclick="changePage(1)" class="px-6 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-30 transition-all rounded-lg">Next Page →</button>
+        </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentPage = 1;
+
+function resetAndLoad() {
+    currentPage = 1;
+    loadOnline();
+}
+
+function changePage(step) {
+    currentPage += step;
+    loadOnline();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+async function loadOnline(){
+    const limit = document.getElementById('limit').value;
+    const container = document.getElementById('online-container');
+    const nextBtn = document.getElementById('next-btn');
+    const prevBtn = document.getElementById('prev-btn');
+    
+    try {
+        const res = await fetch(`/online?page=${currentPage}&limit=${limit}`);
+        const data = await res.json();
+        
+        document.getElementById('current-page-display').innerText = data.page;
+        document.getElementById('total-pages-display').innerText = `of ${data.total_pages}`;
+        
+        prevBtn.disabled = (data.page === 1);
+        nextBtn.disabled = (data.page >= data.total_pages);
+        
+        if(!data.data || data.data.length === 0) {
+            container.innerHTML = '<div class="col-span-full py-20 text-center bg-white rounded-3xl border-2 border-dashed border-slate-200 text-slate-400 font-bold italic">No active users found in the last 30 minutes.</div>';
+            return;
+        }
+
+                container.innerHTML = '';
+        data.data.forEach((r, index) => {
+            // Xác định thứ hạng
+            const isTop1 = (currentPage === 1 && index === 0);
+            const isTop2 = (currentPage === 1 && index === 1);
+            const isTop3 = (currentPage === 1 && index === 2);
+
+            let rankBadge = '';
+            let cardClass = "bg-white border-slate-200 hover:border-emerald-500 hover:shadow-emerald-50/50";
+            let iconClass = "bg-slate-50 text-slate-400 group-hover:text-emerald-600 group-hover:bg-emerald-50";
+            let countClass = "text-slate-900";
+
+            if (isTop1) {
+                rankBadge = '<span class="absolute top-0 right-0 bg-emerald-500 text-white text-[10px] font-black px-3 py-1 rounded-bl-xl shadow-lg ring-1 ring-white/20">#1 HOT</span>';
+                cardClass = "bg-gradient-to-br from-white to-emerald-50 border-emerald-400 shadow-lg shadow-emerald-100 scale-[1.02] ring-2 ring-emerald-500/10";
+                iconClass = "bg-emerald-500 text-white shadow-inner";
+                countClass = "text-emerald-700 text-2xl font-black";
+            } else if (isTop2) {
+                rankBadge = '<span class="absolute top-0 right-0 bg-slate-700 text-white text-[10px] font-black px-3 py-1 rounded-bl-xl">#2</span>';
+                cardClass = "bg-white border-slate-400 shadow-md shadow-slate-100";
+                iconClass = "bg-slate-700 text-white";
+                countClass = "text-slate-800 text-xl font-bold";
+            } else if (isTop3) {
+                rankBadge = '<span class="absolute top-0 right-0 bg-orange-500 text-white text-[10px] font-black px-3 py-1 rounded-bl-xl">#3</span>';
+                cardClass = "bg-white border-orange-200 shadow-md shadow-orange-50";
+                iconClass = "bg-orange-500 text-white";
+                countClass = "text-orange-700 text-xl font-bold";
+            }
+
+            const row = document.createElement('div');
+            row.className = `group relative border p-5 rounded-2xl flex items-center justify-between transition-all duration-300 ${cardClass}`;
+            row.innerHTML = `
+                ${rankBadge}
+                <div class="flex items-center gap-4">
+                    <div class="w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-300 ${iconClass}">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-slate-800 group-hover:text-emerald-900 transition-colors truncate max-w-[200px]" title="${r.hostname}">
+                            ${r.hostname}
+                        </h3>
+                        <p class="text-xs text-slate-400 font-medium uppercase tracking-wider">Active Hostname</p>
+                    </div>
+                </div>
+                <div class="text-right">
+                    <div class="${countClass} tabular-nums leading-none">
+                        ${r.active_users.toLocaleString()}
+                    </div>
+                    <div class="text-[10px] font-bold text-slate-400 uppercase mt-1">Users Online</div>
+                </div>
+            `;
+            container.appendChild(row);
+        });
+
+    } catch (e) {
+        container.innerHTML = '<div class="col-span-full py-20 text-center text-red-500 font-bold italic">Network error: Could not connect to live stream.</div>';
+    }
+}
+// Auto refresh every 60 seconds
+setInterval(loadOnline, 60000);
+loadOnline();
+</script>
+{% endblock %}
