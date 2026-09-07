@@ -11,7 +11,8 @@ Deploy automation for the analytics dashboard server (`dashboard.mbaku.org`).
 
 | Version | Ngày | Thay đổi |
 |---------|------|----------|
-| **v2.0** | 2026-09-06 | Bỏ Kafka — tracking ghi thẳng vào ClickHouse (native port 9000) |
+| **v2.1** | 2026-09-07 | Fix track.js trỏ nhầm sang `api.ultraffic.info` (khiến tracking.service không nhận request thật suốt ~17h) + thêm job aggregate `online_users_slots` mỗi 30s vào Go service (thiếu từ v2.0) |
+| v2.0 | 2026-09-06 | Bỏ Kafka — tracking ghi thẳng vào ClickHouse (native port 9000) |
 | v1.0 | 2026-09-05 | Initial deploy: Go → Kafka → Python consumer → ClickHouse |
 
 ---
@@ -86,6 +87,7 @@ journalctl -fu tracking
 # Output mẫu:
 # ✅ ClickHouse connected: 167.172.71.234:9000 db=analytics
 # ✅ Inserted 143 events
+# ✅ Online slots updated       (mỗi 30s — INSERT vào analytics.online_users_slots)
 
 # Rollback về binary cũ nếu cần
 # cp /home/clickHouse-api/tracking-go/tracking_kafka_bak \

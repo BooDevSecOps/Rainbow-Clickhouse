@@ -122,6 +122,7 @@ func newBatchWriter() *BatchWriter {
 		conn:    conn,
 	}
 	go bw.periodicFlush()
+	go bw.periodicOnlineAggregate()
 	return bw
 }
 
@@ -176,6 +177,40 @@ func (bw *BatchWriter) flush() {
 		log.Printf("❌ Batch send error: %v (batch=%d)", err, len(batch))
 	} else {
 		log.Printf("✅ Inserted %d events", len(batch))
+	}
+}
+
+// -----------------------------
+// Online users aggregator
+// (thay thế aggregate_online() của kafka_consumer.py v1.0 đã tắt)
+// -----------------------------
+const onlineAggregateQuery = `
+	INSERT INTO analytics.online_users_slots (timeslot, hostname, active_users)
+	SELECT
+		toStartOfInterval(toDateTime(timestamp, 'Asia/Manila'), INTERVAL 10 MINUTE) AS timeslot,
+		hostname,
+		uniqState(user_cookie) AS active_users
+	FROM analytics.user_activity
+	WHERE is_bot = 0
+	  AND timestamp >= toUnixTimestamp(now()) - 2400
+	GROUP BY timeslot, hostname
+`
+
+func (bw *BatchWriter) periodicOnlineAggregate() {
+	ticker := time.NewTicker(30 * time.Second)
+	for range ticker.C {
+		bw.aggregateOnline()
+	}
+}
+
+func (bw *BatchWriter) aggregateOnline() {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if err := bw.conn.Exec(ctx, onlineAggregateQuery); err != nil {
+		log.Printf("⚠️  Online aggregate error: %v", err)
+	} else {
+		log.Printf("✅ Online slots updated")
 	}
 }
 

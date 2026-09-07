@@ -42,7 +42,7 @@
             is_bot: isBot
         };
 
-        fetch("https://api.ultraffic.info/track", {
+        fetch("https://dashboard.mbaku.org/track", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),

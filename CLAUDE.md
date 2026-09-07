@@ -133,8 +133,22 @@ Branch: `main`
 | Load avg | ~0.37 (4 cores) — thấp |
 | rclone | ~12% CPU (S3 migration đang chạy) |
 
+## v2.1 — Fix: track.js sai domain + thiếu online aggregation (2026-09-07)
+
+Phát hiện khi kiểm tra dữ liệu: **track.js đang gửi data về `api.ultraffic.info` (hệ cũ) thay vì `dashboard.mbaku.org/track`** — nên suốt từ lúc deploy v2.0 (06/09 16:20 UTC) đến khi phát hiện (07/09 09:28 UTC, ~17h), `tracking.service` **không nhận được request thật nào**, `user_activity` không có insert mới, và `/online` trả về rỗng vì bảng `online_users_slots` cũng chưa từng được ghi (thiếu job aggregate — v1.0 có, Go v2.0 quên thêm).
+
+**Đã fix:**
+1. `scripts/track.js`: đổi `fetch("https://api.ultraffic.info/track", ...)` → `fetch("https://dashboard.mbaku.org/track", ...)`, deploy lại lên `/home/clickHouse-api/track.js`.
+2. `tracking-go/main.go`: thêm goroutine `periodicOnlineAggregate()` (chạy mỗi 30s, y hệt query `aggregate_online()` cũ của `kafka_consumer.py`) — INSERT vào `analytics.online_users_slots` từ `user_activity` (40 phút gần nhất, slot 10 phút). Build lại binary, backup binary cũ tại `tracking-go/tracking_v2.0_no_online_agg_bak`, deploy + restart `tracking.service`.
+
+Verify: test POST `/track` qua cả `localhost:8001` và `https://dashboard.mbaku.org/track` → log `✅ Inserted N events` + `✅ Online slots updated` (mỗi 30s) → `/online` trả về data thật.
+
+> Lưu ý: dữ liệu "hôm nay" hiển thị ở `/summary` trước khi fix (34 hostname, ~40k users) là **số liệu tồn cũ** trong bảng aggregate `daily_hostname_summary`, không phải data live — cẩn thận khi verify dashboard chỉ bằng mắt, cần check `journalctl -u tracking` / nginx access log để chắc chắn có traffic thật.
+
 ## Pending tasks
 
+- [ ] Theo dõi traffic thật quay lại sau khi các site pickup track.js bản mới (cache-control max-age=1800 → tối đa 30 phút để site cũ hết cache)
+- [ ] Cân nhắc xoá 2 dòng test (`hostname = 'selftest.local'` / `'selftest2.local'`) khỏi `user_activity` nếu muốn số liệu sạch tuyệt đối
 - [ ] Xóa DO Kafka cluster sau khi v2.0 ổn định ≥ 1 tuần
 - [ ] Verify S3 migration hoàn tất, cập nhật Django config
 - [ ] Xóa DO node 1 (152.42.197.181) qua DO panel (SSH bị block)
