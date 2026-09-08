@@ -1353,6 +1353,153 @@ async def block_ip_cloudflare(body: BlockIpRequest):
              return {"status": "partial", "message": f"⚠️ Blocked {success_count}/{len(body.ips)} IPs. Errors: {errors}"}
         else:
             return JSONResponse({"status": "error", "message": "Failed to block IPs", "details": errors}, status_code=400)
-            
+
     except Exception as e:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+# ── Daily Traffic Report ──────────────────────────────────────────────────────
+@app.get("/daily-report")
+def get_daily_report(date: str = None):
+    manila_tz = ZoneInfo("Asia/Manila")
+    now = datetime.now(manila_tz)
+
+    if date:
+        target = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=manila_tz)
+    else:
+        target = now
+
+    date_str  = target.strftime("%Y-%m-%d")
+    date_int  = int(target.strftime("%Y%m%d"))
+    yest_int  = int((target - timedelta(days=1)).strftime("%Y%m%d"))
+    week_int  = int((target - timedelta(days=7)).strftime("%Y%m%d"))
+    yest_str  = (target - timedelta(days=1)).strftime("%Y-%m-%d")
+    week_str  = (target - timedelta(days=7)).strftime("%Y-%m-%d")
+
+    ch = get_clickhouse_client()
+    try:
+        def totals(d_int, d_str):
+            r = ch.execute(f"""
+                SELECT
+                    uniqMerge(total_user_activate),
+                    uniqMerge(total_view_page),
+                    uniqMerge(unique_bot_sessions),
+                    (SELECT count() FROM (
+                        SELECT user_cookie FROM analytics.user_first_seen
+                        WHERE first_date = '{d_str}' GROUP BY user_cookie
+                    )),
+                    round(sum(sum_stay_duration) / NULLIF(uniqMerge(total_sessions), 0))
+                FROM analytics.daily_hostname_summary
+                WHERE date_num = {d_int}
+            """)
+            if r and r[0][0]:
+                return {"users": r[0][0], "views": r[0][1], "bots": r[0][2],
+                        "new_users": r[0][3], "avg_stay": int(r[0][4] or 0)}
+            return {"users": 0, "views": 0, "bots": 0, "new_users": 0, "avg_stay": 0}
+
+        today = totals(date_int, date_str)
+        yest  = totals(yest_int, yest_str)
+        week  = totals(week_int, week_str)
+
+        # Top 5 hostnames by users
+        top_hosts_r = ch.execute(f"""
+            SELECT hostname, uniqMerge(total_user_activate) AS u
+            FROM analytics.daily_hostname_summary
+            WHERE date_num = {date_int}
+            GROUP BY hostname ORDER BY u DESC LIMIT 5
+        """)
+        top_hosts = [{"hostname": r[0], "users": r[1]} for r in top_hosts_r]
+
+        # Top 3 referers (sources)
+        top_src_r = ch.execute(f"""
+            SELECT
+                if(referer = '' OR referer IS NULL, 'Direct / Bookmark', referer) AS src,
+                count() AS cnt
+            FROM analytics.user_activity
+            WHERE date_num = {date_int} AND is_bot = 0
+            GROUP BY src ORDER BY cnt DESC LIMIT 3
+        """)
+        top_sources = [{"source": r[0], "sessions": r[1]} for r in top_src_r]
+
+        # Top 3 pages by views
+        top_pages_r = ch.execute(f"""
+            SELECT url, count() AS cnt
+            FROM analytics.user_activity
+            WHERE date_num = {date_int} AND is_bot = 0 AND url != ''
+            GROUP BY url ORDER BY cnt DESC LIMIT 3
+        """)
+        top_pages = [{"url": r[0], "views": r[1]} for r in top_pages_r]
+
+        # Bounce rate
+        bounce_r = ch.execute(f"""
+            SELECT countIf(pages = 1), count()
+            FROM (
+                SELECT session_id, count() AS pages
+                FROM analytics.user_activity
+                WHERE date_num = {date_int} AND is_bot = 0
+                GROUP BY session_id
+            )
+        """)
+        if bounce_r and bounce_r[0][1] > 0:
+            bounce_rate = round(bounce_r[0][0] / bounce_r[0][1] * 100, 1)
+        else:
+            bounce_rate = 0.0
+
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    finally:
+        ch.disconnect()
+
+    def pct(now_val, prev_val):
+        if prev_val == 0:
+            return ("+100%", "🚀") if now_val > 0 else ("0%", "➖")
+        diff = (now_val - prev_val) / prev_val * 100
+        arrow = "📈" if diff >= 0 else "📉"
+        return (f"{'+' if diff >= 0 else ''}{diff:.1f}%", arrow)
+
+    def fmt(n):
+        return f"{n:,}"
+
+    def cmp_line(label, key, unit=""):
+        val = today[key]
+        yd_p, yd_e = pct(val, yest[key])
+        wk_p, wk_e = pct(val, week[key])
+        return (f"{label}: {fmt(val)}{unit} "
+                f"({yd_e} {yd_p} vs yesterday | {wk_e} {wk_p} vs last week)")
+
+    lines = [
+        f"📊 <b>Daily Traffic Report — {date_str}</b>",
+        "",
+        "<b>1. Executive Summary</b>",
+        cmp_line("Active Users",  "users"),
+        cmp_line("Bot Sessions",  "bots"),
+        cmp_line("Page Views",    "views"),
+        f"New Users: {fmt(today['new_users'])}",
+        f"Engagement: Avg Duration {today['avg_stay']}s | Bounce Rate {bounce_rate}%",
+        "",
+        "<b>2. Key Highlights</b>",
+        "🏆 <b>Top Hostnames</b>",
+    ]
+    for i, h in enumerate(top_hosts, 1):
+        lines.append(f"  {i}. {h['hostname']}: {fmt(h['users'])} users")
+
+    lines += ["", "🌍 <b>Top Sources</b>"]
+    for s in top_sources:
+        src = s['source'][:60] + "…" if len(s['source']) > 60 else s['source']
+        lines.append(f"  • {src}: {fmt(s['sessions'])} sessions")
+
+    lines += ["", "📄 <b>Top Pages</b>"]
+    for p in top_pages:
+        url = p['url'][:70] + "…" if len(p['url']) > 70 else p['url']
+        lines.append(f"  • {url}: {fmt(p['views'])} views")
+
+    return {
+        "date": date_str,
+        "today": today,
+        "bounce_rate": bounce_rate,
+        "top_hostnames": top_hosts,
+        "top_sources": top_sources,
+        "top_pages": top_pages,
+        "message_html": "\n".join(lines),
+        "message_plain": "\n".join(lines).replace("<b>", "*").replace("</b>", "*"),
+    }
