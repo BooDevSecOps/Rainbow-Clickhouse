@@ -1387,14 +1387,27 @@ def get_daily_report(date: str = None):
                     (SELECT count() FROM (
                         SELECT user_cookie FROM analytics.user_first_seen
                         WHERE first_date = '{d_str}' GROUP BY user_cookie
-                    )),
-                    round(sum(sum_stay_duration) / NULLIF(uniqMerge(total_sessions), 0))
+                    ))
                 FROM analytics.daily_hostname_summary
                 WHERE date_num = {d_int}
             """)
+            # avg session duration — query directly from user_activity per session
+            avg_r = ch.execute(f"""
+                SELECT avg(session_stay)
+                FROM (
+                    SELECT session_id, (max(timestamp) - min(timestamp)) AS session_stay
+                    FROM analytics.user_activity
+                    WHERE date_num = {d_int} AND is_bot = 0
+                    GROUP BY session_id
+                    HAVING session_stay > 0 AND session_stay < 7200
+                )
+            """)
+            raw_avg = avg_r[0][0] if avg_r else None
+            import math as _math
+            avg_stay = int(raw_avg) if raw_avg and not _math.isnan(raw_avg) and not _math.isinf(raw_avg) else 0
             if r and r[0][0]:
                 return {"users": r[0][0], "views": r[0][1], "bots": r[0][2],
-                        "new_users": r[0][3], "avg_stay": int(r[0][4] or 0)}
+                        "new_users": r[0][3], "avg_stay": avg_stay}
             return {"users": 0, "views": 0, "bots": 0, "new_users": 0, "avg_stay": 0}
 
         today = totals(date_int, date_str)
@@ -1410,11 +1423,11 @@ def get_daily_report(date: str = None):
         """)
         top_hosts = [{"hostname": r[0], "users": r[1]} for r in top_hosts_r]
 
-        # Top 3 referers (sources)
+        # Top 3 referers by unique sessions (not row count)
         top_src_r = ch.execute(f"""
             SELECT
                 if(referer = '' OR referer IS NULL, 'Direct / Bookmark', referer) AS src,
-                count() AS cnt
+                uniq(session_id) AS cnt
             FROM analytics.user_activity
             WHERE date_num = {date_int} AND is_bot = 0
             GROUP BY src ORDER BY cnt DESC LIMIT 3
@@ -1475,7 +1488,7 @@ def get_daily_report(date: str = None):
         cmp_line("Bot Sessions",  "bots"),
         cmp_line("Page Views",    "views"),
         f"New Users: {fmt(today['new_users'])}",
-        f"Engagement: Avg Duration {today['avg_stay']}s | Bounce Rate {bounce_rate}%",
+        f"Engagement: Avg Duration {today['avg_stay'] // 60}m {today['avg_stay'] % 60}s | Bounce Rate {bounce_rate}%",
         "",
         "<b>2. Key Highlights</b>",
         "🏆 <b>Top Hostnames</b>",
