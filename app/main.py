@@ -1596,6 +1596,82 @@ def get_weekly_summary(start_date: str, end_date: str):
     }
 
 
+# ── Today Stats (for live report) ────────────────────────────────────────────
+@app.get("/today-stats")
+def get_today_stats():
+    import time as _time, math as _math
+    manila_tz = ZoneInfo("Asia/Manila")
+    now_manila = datetime.now(manila_tz)
+    date_str  = now_manila.strftime("%Y-%m-%d")
+    date_int  = int(now_manila.strftime("%Y%m%d"))
+    cutoff_30 = int(_time.time()) - 1800  # last 30 min
+
+    ch = get_clickhouse_client()
+    try:
+        # Today: views + active users from materialized view
+        summary_r = ch.execute(f"""
+            SELECT uniqMerge(total_user_activate), uniqMerge(total_view_page)
+            FROM analytics.daily_hostname_summary
+            WHERE date_num = {date_int}
+        """)
+
+        # New users today
+        new_r = ch.execute(f"""
+            SELECT count() FROM (
+                SELECT user_cookie FROM analytics.user_first_seen
+                WHERE first_date = '{date_str}' GROUP BY user_cookie
+            )
+        """)
+
+        # Peak active users: max unique users in any 1-hour window today
+        peak_r = ch.execute(f"""
+            SELECT max(hu) FROM (
+                SELECT toHour(toDateTime(timestamp, 'Asia/Manila')) AS hr,
+                       uniq(user_cookie) AS hu
+                FROM analytics.user_activity
+                WHERE date_num = {date_int} AND is_bot = 0
+                GROUP BY hr
+            )
+        """)
+
+        # Online users: last 30 min
+        online_r = ch.execute(f"""
+            SELECT uniq(user_cookie)
+            FROM analytics.user_activity
+            WHERE timestamp >= {cutoff_30} AND is_bot = 0
+        """)
+
+        # Avg session duration today
+        avg_r = ch.execute(f"""
+            SELECT avg(session_stay)
+            FROM (
+                SELECT session_id, (max(timestamp) - min(timestamp)) AS session_stay
+                FROM analytics.user_activity
+                WHERE date_num = {date_int} AND is_bot = 0
+                GROUP BY session_id
+                HAVING session_stay > 0 AND session_stay < 7200
+            )
+        """)
+        raw_avg = avg_r[0][0] if avg_r else None
+        avg_stay = int(raw_avg) if raw_avg and not _math.isnan(raw_avg) and not _math.isinf(raw_avg) else 0
+
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    finally:
+        ch.disconnect()
+
+    s = summary_r[0] if summary_r else (0, 0)
+    return {
+        "date":        date_str,
+        "page_views":  s[1],
+        "active":      s[0],
+        "peak":        peak_r[0][0] if peak_r and peak_r[0][0] else 0,
+        "new_users":   new_r[0][0]  if new_r  else 0,
+        "online":      online_r[0][0] if online_r else 0,
+        "avg_stay":    avg_stay,
+    }
+
+
 # ── Realtime Activity (last 30 min) ───────────────────────────────────────────
 @app.get("/realtime")
 def get_realtime(minutes: int = 30):
