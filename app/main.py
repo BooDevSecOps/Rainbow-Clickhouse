@@ -1516,3 +1516,38 @@ def get_daily_report(date: str = None):
         "message_html": "\n".join(lines),
         "message_plain": "\n".join(lines).replace("<b>", "*").replace("</b>", "*"),
     }
+
+
+# ── Realtime Activity (last 30 min) ───────────────────────────────────────────
+@app.get("/realtime")
+def get_realtime(minutes: int = 30):
+    ch = get_clickhouse_client()
+    try:
+        cutoff = int(__import__('time').time()) - minutes * 60
+        rows = ch.execute(f"""
+            SELECT
+                hostname,
+                uniq(user_cookie) AS active_users,
+                count()           AS page_views
+            FROM analytics.user_activity
+            WHERE timestamp >= {cutoff} AND is_bot = 0
+            GROUP BY hostname
+            ORDER BY active_users DESC
+            LIMIT 100
+        """)
+        total_users = ch.execute(f"""
+            SELECT uniq(user_cookie)
+            FROM analytics.user_activity
+            WHERE timestamp >= {cutoff} AND is_bot = 0
+        """)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    finally:
+        ch.disconnect()
+
+    data = [{"hostname": r[0], "active_users": r[1], "page_views": r[2]} for r in rows]
+    return {
+        "minutes": minutes,
+        "total_active_users": total_users[0][0] if total_users else 0,
+        "data": data,
+    }
