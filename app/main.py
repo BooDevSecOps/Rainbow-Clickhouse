@@ -1518,6 +1518,84 @@ def get_daily_report(date: str = None):
     }
 
 
+# ── Weekly Summary (Mon–Sun range) ───────────────────────────────────────────
+@app.get("/weekly-summary")
+def get_weekly_summary(start_date: str, end_date: str):
+    try:
+        start_int = int(datetime.strptime(start_date, "%Y-%m-%d").strftime("%Y%m%d"))
+        end_int   = int(datetime.strptime(end_date,   "%Y-%m-%d").strftime("%Y%m%d"))
+    except ValueError:
+        return JSONResponse({"error": "Invalid date format, use YYYY-MM-DD"}, status_code=400)
+
+    ch = get_clickhouse_client()
+    try:
+        # Per-hostname unique users + views (uniqMerge deduplicates across days)
+        rows = ch.execute(f"""
+            SELECT
+                hostname,
+                uniqMerge(total_user_activate) AS weekly_users,
+                uniqMerge(total_view_page)      AS weekly_views
+            FROM analytics.daily_hostname_summary
+            WHERE date_num BETWEEN {start_int} AND {end_int}
+            GROUP BY hostname
+            ORDER BY weekly_users DESC
+            LIMIT 5000
+        """)
+
+        # Grand total unique users across all hostnames for the week
+        total_r = ch.execute(f"""
+            SELECT uniqMerge(total_user_activate), uniqMerge(total_view_page)
+            FROM analytics.daily_hostname_summary
+            WHERE date_num BETWEEN {start_int} AND {end_int}
+        """)
+
+        # New users who first appeared this week
+        new_r = ch.execute(f"""
+            SELECT count() FROM (
+                SELECT user_cookie FROM analytics.user_first_seen
+                WHERE first_date BETWEEN '{start_date}' AND '{end_date}'
+                GROUP BY user_cookie
+            )
+        """)
+
+        # New users per hostname this week
+        new_host_r = ch.execute(f"""
+            SELECT hostname, uniq(user_cookie) AS new_u
+            FROM analytics.user_activity
+            WHERE date_num BETWEEN {start_int} AND {end_int}
+              AND user_cookie IN (
+                  SELECT user_cookie FROM analytics.user_first_seen
+                  WHERE first_date BETWEEN '{start_date}' AND '{end_date}'
+              )
+            GROUP BY hostname
+        """)
+        new_per_host = {r[0]: r[1] for r in new_host_r}
+
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    finally:
+        ch.disconnect()
+
+    data = [{
+        "hostname":            r[0],
+        "total_user_activate": r[1],
+        "total_view_page":     r[2],
+        "new_user":            new_per_host.get(r[0], 0),
+    } for r in rows]
+
+    grand = total_r[0] if total_r else (0, 0)
+    return {
+        "start_date":  start_date,
+        "end_date":    end_date,
+        "grand_total": {
+            "total_users":     grand[0],
+            "total_views":     grand[1],
+            "total_new_users": new_r[0][0] if new_r else 0,
+        },
+        "data": data,
+    }
+
+
 # ── Realtime Activity (last 30 min) ───────────────────────────────────────────
 @app.get("/realtime")
 def get_realtime(minutes: int = 30):
