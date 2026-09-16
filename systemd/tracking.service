@@ -5,6 +5,7 @@ After=network.target
 [Service]
 User=root
 WorkingDirectory=/home/clickHouse-api/tracking-go
+EnvironmentFile=/home/clickHouse-api/.env
 ExecStart=/home/clickHouse-api/tracking-go/tracking
 Restart=always
 RestartSec=5

@@ -18,6 +18,9 @@ def get_client():
     return clickhouse_driver.Client(
         host=os.environ["CLICKHOUSE_HOST"],
         port=int(os.environ.get("CLICKHOUSE_PORT", 9000)),
+        user=os.environ.get("CLICKHOUSE_USER", "default"),
+        password=os.environ.get("CLICKHOUSE_PASSWORD", ""),
+        database=os.environ.get("CLICKHOUSE_DB", "analytics"),
     )
 
 def flush(client, batch):

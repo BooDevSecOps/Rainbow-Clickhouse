@@ -179,8 +179,28 @@ DO Kafka cluster (`db-kafka-ultraffic-do-user-13356586-0...`) giờ không còn
 dùng nữa, có thể xoá để tiết kiệm chi phí — đây là mảnh hạ tầng cuối cùng
 migrate khỏi DigitalOcean.
 
+## v2.3 — ClickHouse chết hoàn toàn (167.172.71.234 destroyed) → migrate sang UpCloud (2026-09-16/17)
+
+**Sự cố:** server ClickHouse gốc `167.172.71.234` (DigitalOcean, không backup/snapshot) đã bị **destroy hoàn toàn**. Đây là mảnh hạ tầng duy nhất trong toàn hệ Rainbow-Clickhouse mà không session nào từng có SSH access. Phát hiện gián tiếp qua việc cron báo cáo traffic 10 phút/lần trên Admin Dashboard (`traffic-report.cron.js`, gọi `/realtime`, `/today-stats`, `/weekly-summary`) ngừng gửi — điều tra ra ClickHouse mất kết nối hoàn toàn (ping 100% loss, mọi port timeout) từ cả dashboard lẫn BE. Dữ liệu lịch sử trước ngày backlog Redpanda bắt đầu (~07/09) **mất vĩnh viễn**, không có backup nào tồn tại.
+
+**Migrate:** dựng ClickHouse mới trên UpCloud — `rainbow-db`, `213.163.193.79` (Singapore, 4vCPU/8GB/100GB). Schema được **tái tạo lại từ các câu query/insert quan sát được trong suốt project** (không phải copy DDL gốc — chưa từng có access để lấy) — xem `scripts/clickhouse_schema_reconstructed.sql`, đặc biệt các bảng `AggregatingMergeTree` (`daily_hostname_summary`, `online_users_slots`) có rủi ro sai kiểu dữ liệu tinh vi so với bản gốc, cần theo dõi thêm.
+
+**Bảo mật:** lần này đặt **password thật** cho user `default` (bài học từ sự cố ufw không đáng tin cậy trên Redpanda) — `password_sha256_hex` trong `/etc/clickhouse-server/users.d/default-password.xml` trên server ClickHouse mới, cộng với `listen_host 0.0.0.0` + ufw giới hạn port 9000 chỉ cho 2 IP app server. Vẫn khuyến nghị bật thêm UpCloud Console Firewall.
+
+**Phát hiện thêm khi migrate:**
+1. **Live server đã lệch khỏi git repo** — `app/main.py` trên dashboard có thêm endpoint `/realtime`, `/today-stats`, `/weekly-summary` (phục vụ cron Telegram của Admin Dashboard) chưa từng được commit/pull về trước đó. Đã đồng bộ lại vào repo.
+2. **Bug tại `get_clickhouse_client()`** trên dashboard: hardcode `password=""` thay vì đọc `CLICKHOUSE_PASSWORD` — âm thầm hoạt động được vì ClickHouse cũ không có password, chỉ lộ ra khi migrate sang server có password thật. Đã fix.
+3. **`kafka_consumer.py`'s `get_client()`** chỉ truyền `host`/`port`, thiếu `user`/`password`/`database` — cùng loại bug, cùng lý do không bị phát hiện trước đây.
+4. Toàn bộ code hardcode IP ClickHouse trực tiếp (`app/detail_user_activate.py`, `app/summary_hostname_cookie.py`, `app/test_db.py` ở cả 2 repo, `app/main.py` của BE) đã chuyển sang đọc qua `config.py`/`.env` thay vì hardcode — BE trước đây `config.py` không hề định nghĩa biến `CLICKHOUSE_*` nào cả, phải thêm mới.
+5. `tracking-go/main.go` (dashboard) trước đây không đọc `.env` (`tracking.service` thiếu `EnvironmentFile=`) — mọi thay đổi cấu hình phải sửa hardcode default + build lại binary. Đã thêm `EnvironmentFile=/home/clickHouse-api/.env` vào service, bỏ hardcode default, giờ chỉ cần sửa `.env` + restart.
+
+**Khôi phục dữ liệu:** nhờ Redpanda đệm toàn bộ traffic trong lúc outage, `kafka-consumer.service` catch-up lại được — không mất dữ liệu phát sinh từ sau khi Redpanda được dựng (07/09), chỉ mất dữ liệu lịch sử trước đó (đã destroy cùng server cũ, không backup).
+
 ## Pending tasks
 
+- [ ] **Cấu hình UpCloud Console Firewall cho server ClickHouse mới (213.163.193.79)** — cùng lý do như Redpanda, ufw không đủ tin cậy
+- [ ] Theo dõi kafka-consumer catch-up hết backlog Redpanda (đang chạy, xem log `journalctl -u kafka-consumer`)
+- [ ] Review kỹ `scripts/clickhouse_schema_reconstructed.sql` — đặc biệt kiểu dữ liệu 2 bảng `AggregatingMergeTree`, có thể không khớp 100% bản gốc
 - [ ] **Cấu hình UpCloud Console Firewall cho server Redpanda (95.111.195.188)** — ufw không đủ tin cậy, xem mục v2.2 ở trên
 - [ ] Xoá DO Kafka cluster (`db-kafka-ultraffic-do-user-13356586-0...`) — không còn dùng nữa
 - [ ] Cân nhắc xoá vài dòng test (`hostname` chứa `test.local`) khỏi `user_activity` nếu muốn số liệu sạch tuyệt đối

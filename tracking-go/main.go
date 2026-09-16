@@ -27,7 +27,7 @@ func getenv(key, def string) string {
 
 // Config từ env
 var (
-	chHost = getenv("CLICKHOUSE_HOST", "167.172.71.234")
+	chHost = getenv("CLICKHOUSE_HOST", "")
 	chPort = getenv("CLICKHOUSE_PORT", "9000")
 	chUser = getenv("CLICKHOUSE_USER", "default")
 	chPass = getenv("CLICKHOUSE_PASSWORD", "")

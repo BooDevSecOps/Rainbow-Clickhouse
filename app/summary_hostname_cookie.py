@@ -3,14 +3,15 @@ from clickhouse_driver import Client
 from datetime import datetime
 from zoneinfo import ZoneInfo  # Python 3.9+
 import json
+from .config import CLICKHOUSE_HOST, CLICKHOUSE_PORT, CLICKHOUSE_USER, CLICKHOUSE_PASSWORD, CLICKHOUSE_DB
 
 # --- 1. Kết nối ClickHouse ---
 ch = Client(
-    host="167.172.71.234",       # IP server ClickHouse
-    port=9000,
-    user="default",
-    password="",
-    database="analytics"
+    host=CLICKHOUSE_HOST,
+    port=CLICKHOUSE_PORT,
+    user=CLICKHOUSE_USER,
+    password=CLICKHOUSE_PASSWORD,
+    database=CLICKHOUSE_DB
 )
 
 # --- 2. Xác định ngày hôm nay theo Asia/Manila ---

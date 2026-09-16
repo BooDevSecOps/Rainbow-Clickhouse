@@ -3,16 +3,17 @@ import json
 from clickhouse_driver import Client
 from datetime import datetime
 import pytz
+from .config import CLICKHOUSE_HOST, CLICKHOUSE_PORT, CLICKHOUSE_USER, CLICKHOUSE_PASSWORD, CLICKHOUSE_DB
 
 # ---------------------------
 # 1. Kết nối ClickHouse
 # ---------------------------
 ch = Client(
-    host="167.172.71.234",
-    port=9000,
-    user="default",
-    password="",
-    database="analytics"
+    host=CLICKHOUSE_HOST,
+    port=CLICKHOUSE_PORT,
+    user=CLICKHOUSE_USER,
+    password=CLICKHOUSE_PASSWORD,
+    database=CLICKHOUSE_DB
 )
 
 # ---------------------------

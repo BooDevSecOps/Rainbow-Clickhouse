@@ -145,7 +145,7 @@ def get_clickhouse_client():
         host=CLICKHOUSE_HOST,
         port=9000,
         user=CLICKHOUSE_USER,
-        password="",
+        password=CLICKHOUSE_PASSWORD,
         database=CLICKHOUSE_DB
     )
 
@@ -1596,79 +1596,103 @@ def get_weekly_summary(start_date: str, end_date: str):
     }
 
 
-# ── Today Stats (for live report) ────────────────────────────────────────────
+# ── Today Stats — all metrics from last 30 min (realtime) ────────────────────
 @app.get("/today-stats")
-def get_today_stats():
+def get_today_stats(minutes: int = 30):
     import time as _time, math as _math
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     manila_tz = ZoneInfo("Asia/Manila")
     now_manila = datetime.now(manila_tz)
-    date_str  = now_manila.strftime("%Y-%m-%d")
-    date_int  = int(now_manila.strftime("%Y%m%d"))
-    cutoff_30 = int(_time.time()) - 1800  # last 30 min
+    today_str = now_manila.strftime("%Y-%m-%d")
+    now_ts  = int(_time.time())
+    cutoff  = now_ts - minutes * 60
+    cutoff5 = now_ts - 120   # online now = last 2 min
 
-    ch = get_clickhouse_client()
-    try:
-        # Today: views + active users from materialized view
-        summary_r = ch.execute(f"""
-            SELECT uniqMerge(total_user_activate), uniqMerge(total_view_page)
-            FROM analytics.daily_hostname_summary
-            WHERE date_num = {date_int}
-        """)
+    def run_query(sql):
+        ch = get_clickhouse_client()
+        try:
+            return ch.execute(sql)
+        finally:
+            ch.disconnect()
 
-        # New users today
-        new_r = ch.execute(f"""
-            SELECT count() FROM (
-                SELECT user_cookie FROM analytics.user_first_seen
-                WHERE first_date = '{date_str}' GROUP BY user_cookie
-            )
-        """)
-
-        # Peak active users: max unique users in any 1-hour window today
-        peak_r = ch.execute(f"""
-            SELECT max(hu) FROM (
-                SELECT toHour(toDateTime(timestamp, 'Asia/Manila')) AS hr,
-                       uniq(user_cookie) AS hu
+    queries = {
+        "main": f"""
+            SELECT count(), uniq(user_cookie)
+            FROM analytics.user_activity
+            WHERE timestamp >= {cutoff} AND is_bot = 0
+        """,
+        "peak": f"""
+            SELECT max(mu) FROM (
+                SELECT toStartOfMinute(toDateTime(timestamp)) AS m,
+                       uniq(user_cookie) AS mu
                 FROM analytics.user_activity
-                WHERE date_num = {date_int} AND is_bot = 0
-                GROUP BY hr
+                WHERE timestamp >= {cutoff} AND is_bot = 0
+                GROUP BY m
             )
-        """)
-
-        # Online users: last 30 min
-        online_r = ch.execute(f"""
+        """,
+        "new_users": f"""
             SELECT uniq(user_cookie)
             FROM analytics.user_activity
-            WHERE timestamp >= {cutoff_30} AND is_bot = 0
-        """)
-
-        # Avg session duration today
-        avg_r = ch.execute(f"""
+            WHERE timestamp >= {cutoff} AND is_bot = 0
+              AND user_cookie NOT IN (
+                  SELECT user_cookie FROM analytics.user_activity
+                  WHERE timestamp >= {cutoff - minutes * 60} AND timestamp < {cutoff}
+                    AND is_bot = 0
+              )
+        """,
+        "online": f"""
+            SELECT uniq(user_cookie)
+            FROM analytics.user_activity
+            WHERE timestamp >= {cutoff5} AND is_bot = 0
+        """,
+        "avg": f"""
             SELECT avg(session_stay)
             FROM (
                 SELECT session_id, (max(timestamp) - min(timestamp)) AS session_stay
                 FROM analytics.user_activity
-                WHERE date_num = {date_int} AND is_bot = 0
+                WHERE timestamp >= {cutoff} AND is_bot = 0
                 GROUP BY session_id
                 HAVING session_stay > 0 AND session_stay < 7200
             )
-        """)
-        raw_avg = avg_r[0][0] if avg_r else None
-        avg_stay = int(raw_avg) if raw_avg and not _math.isnan(raw_avg) and not _math.isinf(raw_avg) else 0
+        """,
+        "devices": f"""
+            SELECT
+                if(match(browser, '(?i)(Mobile|Android|iPhone|iPad)'), 'Mobile', 'Desktop') AS device,
+                uniq(user_cookie) AS cnt
+            FROM analytics.user_activity
+            WHERE timestamp >= {cutoff} AND is_bot = 0
+            GROUP BY device
+        """,
+    }
 
+    results = {}
+    try:
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            futs = {pool.submit(run_query, sql): key for key, sql in queries.items()}
+            for fut in as_completed(futs):
+                results[futs[fut]] = fut.result()
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
-    finally:
-        ch.disconnect()
 
-    s = summary_r[0] if summary_r else (0, 0)
+    m = results.get("main", [(0, 0)])[0]
+    peak_r   = results.get("peak",     [(0,)])[0]
+    new_r    = results.get("new_users",[(0,)])[0]
+    online_r = results.get("online",   [(0,)])[0]
+    avg_r    = results.get("avg",      [(None,)])[0]
+    raw_avg  = avg_r[0] if avg_r else None
+    avg_stay = int(raw_avg) if raw_avg and not _math.isnan(raw_avg) and not _math.isinf(raw_avg) else 0
+    dev_rows = results.get("devices", [])
+    devices  = {r[0]: r[1] for r in dev_rows} if dev_rows else {}
+
     return {
-        "date":        date_str,
-        "page_views":  s[1],
-        "active":      s[0],
-        "peak":        peak_r[0][0] if peak_r and peak_r[0][0] else 0,
-        "new_users":   new_r[0][0]  if new_r  else 0,
-        "online":      online_r[0][0] if online_r else 0,
-        "avg_stay":    avg_stay,
+        "minutes":    minutes,
+        "page_views": m[0] if m else 0,
+        "active":     m[1] if m else 0,
+        "peak":       peak_r[0] if peak_r and peak_r[0] else 0,
+        "new_users":  new_r[0]  if new_r  else 0,
+        "online":     online_r[0] if online_r else 0,
+        "avg_stay":   avg_stay,
+        "devices":    devices,
     }
 
 
