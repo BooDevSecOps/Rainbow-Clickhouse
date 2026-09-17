@@ -8,11 +8,11 @@ Group=root
 WorkingDirectory=/home/clickHouse-api
 
 # TĂNG CƯỜNG HIỆU NĂNG:
-# 1. -w: Nếu server bạn có 8 cores, hãy để 17. Nếu 16 cores, hãy để 33.
+# 1. -w: công thức 2×core+1. Server này 2 core -> 5 worker.
 # 2. --worker-connections: Tăng số lượng kết nối đồng thời mỗi worker có thể giữ.
 # 3. --backlog: Tăng hàng đợi kết nối đang chờ xử lý lên mức tối đa của nhân Linux.
 ExecStart=/home/clickHouse-api/env/bin/python -m gunicorn \
-    -w 17 \
+    -w 5 \
     -k uvicorn.workers.UvicornWorker \
     --worker-connections 20000 \
     --backlog 20480 \
